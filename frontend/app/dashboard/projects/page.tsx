@@ -39,7 +39,40 @@ type MeResponse = {
   id?: string;
   email?: string;
   role?: string;
+  name?: string;
 };
+
+function getDisplayName(user: MeResponse): string {
+  if (user?.name?.trim()) {
+    return user.name.trim();
+  }
+
+  if (user?.email?.includes("@")) {
+    const localPart = user.email.split("@")[0];
+
+    return localPart
+      .replace(/[._-]+/g, " ")
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+
+  return "TeamGate User";
+}
+
+function getInitials(name: string): string {
+  const cleanName = name.trim();
+
+  if (!cleanName) {
+    return "TG";
+  }
+
+  const words = cleanName.split(/\s+/).filter(Boolean);
+
+  if (words.length === 1) {
+    return words[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -55,8 +88,16 @@ export default function ProjectsPage() {
   const [userRole, setUserRole] = useState<UserRole>("employee");
   const [roleLoading, setRoleLoading] = useState(true);
 
+  const [currentUserName, setCurrentUserName] =
+    useState("TeamGate User");
+
+  const [currentUserEmail, setCurrentUserEmail] =
+    useState("");
+
   const canCreateProject =
     userRole === "manager" || userRole === "admin";
+
+  const currentUserInitials = getInitials(currentUserName);
 
   useEffect(() => {
     const loadPage = async () => {
@@ -70,8 +111,23 @@ export default function ProjectsPage() {
           apiFetch("/projects") as Promise<ApiResponse>,
         ]);
 
-        console.log("Current user:", meData);
-        console.log("Projects API response:", projectsData);
+        console.log(
+          "CURRENT USER DATA:",
+          JSON.stringify(meData, null, 2)
+        );
+
+        console.log(
+          "PROJECTS API RESPONSE:",
+          JSON.stringify(projectsData, null, 2)
+        );
+
+        /*
+         * USER DETAILS
+         * -------------------------
+         * The backend /me response is the source of truth.
+         */
+
+        const displayName = getDisplayName(meData);
 
         const role: UserRole =
           meData?.role === "admin" ||
@@ -81,6 +137,12 @@ export default function ProjectsPage() {
             : "employee";
 
         setUserRole(role);
+        setCurrentUserName(displayName);
+        setCurrentUserEmail(meData?.email || "");
+
+        /*
+         * PROJECT DATA
+         */
 
         let apiProjects: ApiProject[] = [];
 
@@ -98,24 +160,38 @@ export default function ProjectsPage() {
           .filter((project) => project.projectId)
           .map((project) => ({
             id: project.projectId,
-            name: project.name || "Untitled project",
-            description: project.description || "",
+
+            name:
+              project.name || "Untitled project",
+
+            description:
+              project.description || "",
+
             status:
               project.status?.toLowerCase() === "completed"
                 ? "Completed"
                 : project.status?.toLowerCase() === "planning"
                 ? "Planning"
                 : "Active",
+
             members: 0,
+
             updated: project.updatedAt
-              ? new Date(project.updatedAt).toLocaleDateString()
+              ? new Date(
+                  project.updatedAt
+                ).toLocaleDateString()
               : "Recently",
-            owner: project.createdBy || "Unknown",
+
+            owner:
+              project.createdBy || "Unknown",
           }));
 
         setProjects(formattedProjects);
       } catch (error: unknown) {
-        console.error("Failed to load projects:", error);
+        console.error(
+          "Failed to load projects:",
+          error
+        );
 
         setProjectError(
           error instanceof Error
@@ -133,19 +209,31 @@ export default function ProjectsPage() {
 
   const filteredProjects = useMemo(() => {
     return projects.filter((project) => {
-      const searchText = search.toLowerCase().trim();
+      const searchText =
+        search.toLowerCase().trim();
 
       const matchesSearch =
-        project.name.toLowerCase().includes(searchText) ||
-        project.description.toLowerCase().includes(searchText);
+        project.name
+          .toLowerCase()
+          .includes(searchText) ||
+        project.description
+          .toLowerCase()
+          .includes(searchText);
 
       const matchesStatus =
         statusFilter === "All" ||
         project.status === statusFilter;
 
-      return matchesSearch && matchesStatus;
+      return (
+        matchesSearch &&
+        matchesStatus
+      );
     });
-  }, [projects, search, statusFilter]);
+  }, [
+    projects,
+    search,
+    statusFilter,
+  ]);
 
   const menuItems = [
     {
@@ -166,6 +254,7 @@ export default function ProjectsPage() {
         </svg>
       ),
     },
+
     {
       name: "Projects",
       icon: (
@@ -184,6 +273,7 @@ export default function ProjectsPage() {
         </svg>
       ),
     },
+
     {
       name: "Team",
       icon: (
@@ -197,11 +287,12 @@ export default function ProjectsPage() {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
+            d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM22 21v-2a6 6 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
           />
         </svg>
       ),
     },
+
     {
       name: "Settings",
       icon: (
@@ -217,6 +308,7 @@ export default function ProjectsPage() {
             strokeLinejoin="round"
             d="M12 15.5a3.5 3.5 0 100-7 3.5 3.5 0 000 7z"
           />
+
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -247,12 +339,17 @@ export default function ProjectsPage() {
     <main className="min-h-screen bg-[#030712] text-white">
       <div className="flex min-h-screen">
 
-        {/* SIDEBAR */}
+        {/* ================= SIDEBAR ================= */}
+
         <aside className="fixed left-0 top-0 z-30 flex h-screen w-[250px] flex-col border-r border-white/[0.07] bg-[#070b14]">
+
+          {/* LOGO */}
 
           <div className="flex h-[76px] items-center border-b border-white/[0.07] px-6">
             <button
-              onClick={() => router.push("/dashboard")}
+              onClick={() =>
+                router.push("/dashboard")
+              }
               className="flex items-center gap-3"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-blue-400/20 bg-blue-500/10 shadow-lg shadow-blue-950/20">
@@ -263,7 +360,10 @@ export default function ProjectsPage() {
 
               <div className="text-left">
                 <h1 className="text-[18px] font-bold tracking-tight">
-                  Team<span className="text-blue-500">Gate</span>
+                  Team
+                  <span className="text-blue-500">
+                    Gate
+                  </span>
                 </h1>
 
                 <p className="text-[10px] uppercase tracking-[0.16em] text-gray-500">
@@ -273,6 +373,8 @@ export default function ProjectsPage() {
             </button>
           </div>
 
+          {/* NAVIGATION */}
+
           <div className="flex-1 px-4 py-7">
             <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-600">
               Workspace
@@ -280,12 +382,15 @@ export default function ProjectsPage() {
 
             <nav className="space-y-1.5">
               {menuItems.map((item) => {
-                const active = activeMenu === item.name;
+                const active =
+                  activeMenu === item.name;
 
                 return (
                   <button
                     key={item.name}
-                    onClick={() => handleMenuClick(item.name)}
+                    onClick={() =>
+                      handleMenuClick(item.name)
+                    }
                     className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-medium transition-all duration-200 ${
                       active
                         ? "bg-blue-600/12 text-blue-400 shadow-inner shadow-blue-500/5"
@@ -312,41 +417,52 @@ export default function ProjectsPage() {
               })}
             </nav>
 
-            {/* ADMIN / MANAGER ONLY */}
-            {!roleLoading && canCreateProject && (
-              <div className="mt-10">
-                <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-600">
-                  Quick action
-                </p>
+            {/* QUICK ACTION */}
 
-                <button
-                  onClick={() =>
-                    router.push("/dashboard/projects/new")
-                  }
-                  className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-sm text-gray-400 transition-all hover:border-blue-500/20 hover:bg-blue-500/[0.06] hover:text-white"
-                >
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/15 text-blue-400 transition group-hover:bg-blue-600 group-hover:text-white">
-                    +
-                  </span>
+            {!roleLoading &&
+              canCreateProject && (
+                <div className="mt-10">
+                  <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-600">
+                    Quick action
+                  </p>
 
-                  New project
-                </button>
-              </div>
-            )}
+                  <button
+                    onClick={() =>
+                      router.push(
+                        "/dashboard/projects/new"
+                      )
+                    }
+                    className="group flex w-full items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3.5 py-3 text-sm text-gray-400 transition-all hover:border-blue-500/20 hover:bg-blue-500/[0.06] hover:text-white"
+                  >
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600/15 text-blue-400 transition group-hover:bg-blue-600 group-hover:text-white">
+                      +
+                    </span>
+
+                    New project
+                  </button>
+                </div>
+              )}
           </div>
+
+          {/* CURRENT USER */}
 
           <div className="border-t border-white/[0.07] p-4">
             <button className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-white/[0.035]">
+
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-sm font-semibold">
-                S
+                {currentUserInitials}
               </div>
 
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-gray-200">
-                  Sandhya
+                  {currentUserName}
                 </p>
 
-                <p className="text-xs capitalize text-gray-600">
+                <p className="truncate text-xs text-gray-600">
+                  {currentUserEmail || userRole}
+                </p>
+
+                <p className="text-[10px] capitalize text-gray-700">
                   {userRole}
                 </p>
               </div>
@@ -368,8 +484,11 @@ export default function ProjectsPage() {
           </div>
         </aside>
 
-        {/* MAIN */}
+        {/* ================= MAIN ================= */}
+
         <section className="ml-[250px] min-h-screen flex-1">
+
+          {/* HEADER */}
 
           <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b border-white/[0.07] bg-[#030712]/90 px-8 backdrop-blur-xl">
 
@@ -390,13 +509,18 @@ export default function ProjectsPage() {
 
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) =>
+                  setSearch(e.target.value)
+                }
                 placeholder="Search projects..."
                 className="h-10 w-full rounded-xl border border-white/[0.07] bg-white/[0.025] pl-10 pr-4 text-sm text-gray-200 outline-none transition placeholder:text-gray-600 focus:border-blue-500/30 focus:bg-white/[0.04]"
               />
             </div>
 
+            {/* HEADER PROFILE */}
+
             <div className="flex items-center gap-4">
+
               <button className="relative flex h-9 w-9 items-center justify-center rounded-xl text-gray-500 transition hover:bg-white/[0.05] hover:text-gray-200">
                 <svg
                   className="h-5 w-5"
@@ -418,30 +542,44 @@ export default function ProjectsPage() {
               <div className="h-6 w-px bg-white/[0.07]" />
 
               <div className="flex items-center gap-3">
+
                 <div className="hidden text-right sm:block">
                   <p className="text-sm font-medium text-gray-200">
-                    Sandhya
+                    {currentUserName}
                   </p>
 
-                  <p className="text-[11px] capitalize text-gray-600">
+                  <p className="max-w-[180px] truncate text-[11px] text-gray-600">
+                    {currentUserEmail}
+                  </p>
+
+                  <p className="text-[10px] capitalize text-gray-700">
                     {userRole}
                   </p>
                 </div>
 
                 <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-sm font-semibold">
-                  S
+                  {currentUserInitials}
                 </div>
               </div>
             </div>
           </header>
 
+          {/* CONTENT */}
+
           <div className="px-8 py-9">
 
+            {/* PAGE TITLE */}
+
             <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
+
               <div>
+
                 <div className="mb-3 flex items-center gap-2 text-xs text-gray-600">
+
                   <button
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() =>
+                      router.push("/dashboard")
+                    }
                     className="transition hover:text-gray-300"
                   >
                     Dashboard
@@ -452,6 +590,7 @@ export default function ProjectsPage() {
                   <span className="text-gray-400">
                     Projects
                   </span>
+
                 </div>
 
                 <h2 className="text-3xl font-semibold tracking-tight">
@@ -461,42 +600,55 @@ export default function ProjectsPage() {
                 <p className="mt-2 text-sm text-gray-500">
                   View and manage projects in your workspace.
                 </p>
+
               </div>
 
-              {/* ADMIN / MANAGER ONLY */}
-              {!roleLoading && canCreateProject && (
-                <button
-                  onClick={() =>
-                    router.push("/dashboard/projects/new")
-                  }
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500 active:scale-[0.98]"
-                >
-                  <span className="text-lg leading-none">
-                    +
-                  </span>
-                  New project
-                </button>
-              )}
+              {!roleLoading &&
+                canCreateProject && (
+                  <button
+                    onClick={() =>
+                      router.push(
+                        "/dashboard/projects/new"
+                      )
+                    }
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-950/30 transition hover:bg-blue-500 active:scale-[0.98]"
+                  >
+                    <span className="text-lg leading-none">
+                      +
+                    </span>
+
+                    New project
+                  </button>
+                )}
             </div>
+
+            {/* FILTER BAR */}
 
             <div className="mt-8 flex flex-col gap-3 rounded-2xl border border-white/[0.07] bg-[#070b14] p-3 sm:flex-row sm:items-center sm:justify-between">
 
               <div className="flex gap-1 overflow-x-auto">
-                {["All", "Active", "Planning", "Completed"].map(
-                  (filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => setStatusFilter(filter)}
-                      className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-medium transition ${
-                        statusFilter === filter
-                          ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30"
-                          : "text-gray-500 hover:bg-white/[0.04] hover:text-gray-200"
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  )
-                )}
+
+                {[
+                  "All",
+                  "Active",
+                  "Planning",
+                  "Completed",
+                ].map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() =>
+                      setStatusFilter(filter)
+                    }
+                    className={`whitespace-nowrap rounded-lg px-4 py-2 text-xs font-medium transition ${
+                      statusFilter === filter
+                        ? "bg-blue-600 text-white shadow-lg shadow-blue-950/30"
+                        : "text-gray-500 hover:bg-white/[0.04] hover:text-gray-200"
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+
               </div>
 
               <div className="px-3 text-xs text-gray-600">
@@ -506,8 +658,11 @@ export default function ProjectsPage() {
               </div>
             </div>
 
+            {/* LOADING */}
+
             {loadingProjects && (
               <div className="mt-5 rounded-2xl border border-white/[0.07] bg-[#070b14] px-6 py-16 text-center">
+
                 <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-blue-500/20 border-t-blue-500" />
 
                 <p className="mt-4 text-sm text-gray-400">
@@ -517,126 +672,161 @@ export default function ProjectsPage() {
                 <p className="mt-1 text-xs text-gray-600">
                   Connecting to your TeamGate workspace.
                 </p>
+
               </div>
             )}
 
-            {!loadingProjects && projectError && (
-              <div className="mt-5 rounded-2xl border border-red-500/10 bg-red-500/[0.04] px-6 py-12 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
-                  !
+            {/* ERROR */}
+
+            {!loadingProjects &&
+              projectError && (
+                <div className="mt-5 rounded-2xl border border-red-500/10 bg-red-500/[0.04] px-6 py-12 text-center">
+
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-red-500/10 text-red-400">
+                    !
+                  </div>
+
+                  <h3 className="mt-4 text-sm font-medium text-gray-300">
+                    Unable to load projects
+                  </h3>
+
+                  <p className="mx-auto mt-2 max-w-md text-xs text-gray-600">
+                    {projectError}
+                  </p>
+
+                  <button
+                    onClick={() =>
+                      window.location.reload()
+                    }
+                    className="mt-5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-xs font-medium text-gray-400 transition hover:border-blue-500/20 hover:bg-blue-500/10 hover:text-blue-400"
+                  >
+                    Try again
+                  </button>
+
                 </div>
+              )}
 
-                <h3 className="mt-4 text-sm font-medium text-gray-300">
-                  Unable to load projects
-                </h3>
-
-                <p className="mx-auto mt-2 max-w-md text-xs text-gray-600">
-                  {projectError}
-                </p>
-
-                <button
-                  onClick={() => window.location.reload()}
-                  className="mt-5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-xs font-medium text-gray-400 transition hover:border-blue-500/20 hover:bg-blue-500/10 hover:text-blue-400"
-                >
-                  Try again
-                </button>
-              </div>
-            )}
+            {/* PROJECT GRID */}
 
             {!loadingProjects &&
               !projectError &&
               filteredProjects.length > 0 && (
                 <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 
-                  {filteredProjects.map((project) => (
-                    <div
-                      key={project.id}
-                      className="group rounded-2xl border border-white/[0.07] bg-[#070b14] p-5 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/20 hover:bg-[#090f1b]"
-                    >
+                  {filteredProjects.map(
+                    (project) => (
+                      <div
+                        key={project.id}
+                        className="group rounded-2xl border border-white/[0.07] bg-[#070b14] p-5 transition-all duration-200 hover:-translate-y-1 hover:border-blue-500/20 hover:bg-[#090f1b]"
+                      >
 
-                      <div className="flex items-start justify-between">
+                        <div className="flex items-start justify-between">
 
-                        <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-blue-500/10 bg-blue-500/[0.07] text-blue-400">
-                          <svg
-                            className="h-5 w-5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M4 7h6l2 2h8v10H4V7z"
-                            />
-                          </svg>
-                        </div>
+                          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-blue-500/10 bg-blue-500/[0.07] text-blue-400">
 
-                        <StatusBadge status={project.status} />
-                      </div>
+                            <svg
+                              className="h-5 w-5"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                              strokeWidth="1.8"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M4 7h6l2 2h8v10H4V7z"
+                              />
+                            </svg>
 
-                      <div className="mt-5">
-                        <h3 className="text-base font-semibold text-gray-100 transition group-hover:text-white">
-                          {project.name}
-                        </h3>
-
-                        <p className="mt-2 min-h-[40px] text-xs leading-5 text-gray-600">
-                          {project.description || "No description provided."}
-                        </p>
-                      </div>
-
-                      <div className="mt-6 flex items-center justify-between border-t border-white/[0.06] pt-4">
-
-                        <div className="flex items-center gap-2">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.06] text-[10px] font-semibold text-gray-400">
-                            {project.owner.charAt(0).toUpperCase()}
                           </div>
 
-                          <div>
+                          <StatusBadge
+                            status={
+                              project.status
+                            }
+                          />
+
+                        </div>
+
+                        <div className="mt-5">
+
+                          <h3 className="text-base font-semibold text-gray-100 transition group-hover:text-white">
+                            {project.name}
+                          </h3>
+
+                          <p className="mt-2 min-h-[40px] text-xs leading-5 text-gray-600">
+                            {project.description ||
+                              "No description provided."}
+                          </p>
+
+                        </div>
+
+                        <div className="mt-6 flex items-center justify-between border-t border-white/[0.06] pt-4">
+
+                          <div className="flex items-center gap-2">
+
+                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-white/[0.06] text-[10px] font-semibold text-gray-400">
+                              {project.owner
+                                .charAt(0)
+                                .toUpperCase()}
+                            </div>
+
+                            <div>
+
+                              <p className="text-[10px] text-gray-600">
+                                Owner
+                              </p>
+
+                              <p className="max-w-[120px] truncate text-xs text-gray-400">
+                                {project.owner}
+                              </p>
+
+                            </div>
+
+                          </div>
+
+                          <div className="text-right">
+
                             <p className="text-[10px] text-gray-600">
-                              Owner
+                              Members
                             </p>
 
-                            <p className="max-w-[120px] truncate text-xs text-gray-400">
-                              {project.owner}
+                            <p className="text-xs text-gray-400">
+                              {project.members}
                             </p>
+
                           </div>
+
                         </div>
 
-                        <div className="text-right">
-                          <p className="text-[10px] text-gray-600">
-                            Members
-                          </p>
+                        <div className="mt-4 flex items-center justify-between">
 
-                          <p className="text-xs text-gray-400">
-                            {project.members}
-                          </p>
+                          <span className="text-[10px] text-gray-700">
+                            Updated{" "}
+                            {project.updated}
+                          </span>
+
+                          <button
+                            onClick={() =>
+                              router.push(
+                                `/dashboard/projects/${project.id}`
+                              )
+                            }
+                            className="rounded-lg border border-white/[0.07] px-3 py-1.5 text-[11px] font-medium text-gray-500 transition hover:border-blue-500/20 hover:bg-blue-500/10 hover:text-blue-400"
+                          >
+                            View project
+                          </button>
+
                         </div>
-                      </div>
-
-                      <div className="mt-4 flex items-center justify-between">
-
-                        <span className="text-[10px] text-gray-700">
-                          Updated {project.updated}
-                        </span>
-
-                        <button
-                          onClick={() =>
-                            router.push(
-                              `/dashboard/projects/${project.id}`
-                            )
-                          }
-                          className="rounded-lg border border-white/[0.07] px-3 py-1.5 text-[11px] font-medium text-gray-500 transition hover:border-blue-500/20 hover:bg-blue-500/10 hover:text-blue-400"
-                        >
-                          View project
-                        </button>
 
                       </div>
-                    </div>
-                  ))}
+                    )
+                  )}
 
                 </div>
               )}
+
+            {/* EMPTY */}
 
             {!loadingProjects &&
               !projectError &&
@@ -644,6 +834,7 @@ export default function ProjectsPage() {
                 <div className="mt-5 rounded-2xl border border-white/[0.07] bg-[#070b14] px-6 py-16 text-center">
 
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.04] text-gray-600">
+
                     <svg
                       className="h-6 w-6"
                       fill="none"
@@ -657,6 +848,7 @@ export default function ProjectsPage() {
                         d="M10 10l4 4m0-4l-4 4m10-2a8 8 0 11-16 0 8 8 0 0116 0z"
                       />
                     </svg>
+
                   </div>
 
                   <h3 className="mt-4 text-sm font-medium text-gray-300">
@@ -671,17 +863,20 @@ export default function ProjectsPage() {
                       : "Try changing your search or status filter."}
                   </p>
 
-                  {/* ADMIN / MANAGER ONLY */}
-                  {projects.length === 0 && canCreateProject && (
-                    <button
-                      onClick={() =>
-                        router.push("/dashboard/projects/new")
-                      }
-                      className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500"
-                    >
-                      Create project
-                    </button>
-                  )}
+                  {projects.length === 0 &&
+                    canCreateProject && (
+                      <button
+                        onClick={() =>
+                          router.push(
+                            "/dashboard/projects/new"
+                          )
+                        }
+                        className="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-blue-500"
+                      >
+                        Create project
+                      </button>
+                    )}
+
                 </div>
               )}
 
@@ -697,11 +892,16 @@ function StatusBadge({
 }: {
   status: ProjectStatus;
 }) {
-  const styles: Record<ProjectStatus, string> = {
+  const styles: Record<
+    ProjectStatus,
+    string
+  > = {
     Active:
       "border-blue-500/15 bg-blue-500/10 text-blue-400",
+
     Planning:
       "border-amber-500/15 bg-amber-500/10 text-amber-400",
+
     Completed:
       "border-emerald-500/15 bg-emerald-500/10 text-emerald-400",
   };

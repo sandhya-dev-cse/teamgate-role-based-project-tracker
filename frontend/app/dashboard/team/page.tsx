@@ -20,7 +20,7 @@ type TeamMember = {
   name: string;
   email: string;
   role: UserRole;
-  status: "Active" | "Invited";
+  status: "Active";
   joined: string;
 };
 
@@ -70,13 +70,88 @@ export default function TeamPage() {
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [updating, setUpdating] = useState(false);
 
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] =
+    useState<"manager" | "employee">("employee");
+  const [inviting, setInviting] = useState(false);
+  const [inviteSuccess, setInviteSuccess] = useState("");
+
   const [currentUserId, setCurrentUserId] = useState("");
+  const [currentUserName, setCurrentUserName] =
+    useState("TeamGate User");
+  const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [currentUserRole, setCurrentUserRole] =
     useState<UserRole>("employee");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isRestricted, setIsRestricted] = useState(false);
+
+  // ---------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------
+
+  const getDisplayName = (user: ApiUser) => {
+    if (user.name?.trim()) {
+      return user.name.trim();
+    }
+
+    const email = user.email?.trim() || "";
+
+    if (!email) {
+      return "TeamGate User";
+    }
+
+    const localPart = email.split("@")[0];
+
+    const cleaned = localPart
+      .replace(/[._-]+/g, " ")
+      .replace(/\d+$/g, "")
+      .trim();
+
+    if (!cleaned) {
+      return "TeamGate User";
+    }
+
+    return cleaned
+      .split(/\s+/)
+      .map(
+        (word) =>
+          word.charAt(0).toUpperCase() +
+          word.slice(1).toLowerCase()
+      )
+      .join(" ");
+  };
+
+  const getInitials = (name: string) => {
+    const words = name
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (words.length === 0) {
+      return "TG";
+    }
+
+    if (words.length === 1) {
+      return words[0].slice(0, 2).toUpperCase();
+    }
+
+    return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  };
+
+  const normalizeRole = (role?: string): UserRole => {
+    if (
+      role === "admin" ||
+      role === "manager" ||
+      role === "employee"
+    ) {
+      return role;
+    }
+
+    return "employee";
+  };
 
   // ---------------------------------------------------------
   // Load current user + team members
@@ -91,16 +166,19 @@ export default function TeamPage() {
 
         const me = (await apiFetch("/me")) as ApiUser;
 
-        const myId = me.userId || me.id || "";
+        console.log(
+          "TEAM CURRENT USER:",
+          JSON.stringify(me, null, 2)
+        );
 
-        const myRole: UserRole =
-          me.role === "admin" ||
-          me.role === "manager" ||
-          me.role === "employee"
-            ? me.role
-            : "employee";
+        const myId = me.userId || me.id || "";
+        const myEmail = me.email || "";
+        const myName = getDisplayName(me);
+        const myRole = normalizeRole(me.role);
 
         setCurrentUserId(myId);
+        setCurrentUserName(myName);
+        setCurrentUserEmail(myEmail);
         setCurrentUserRole(myRole);
 
         // Only Admin can view all users.
@@ -110,6 +188,7 @@ export default function TeamPage() {
           return;
         }
 
+        // Load all workspace users.
         const data = (await apiFetch("/users")) as UsersResponse;
 
         let apiUsers: ApiUser[] = [];
@@ -122,31 +201,13 @@ export default function TeamPage() {
           apiUsers = data.items;
         }
 
-        console.log("Users API response:", data);
-        console.log("Users received:", apiUsers);
-
         const formattedMembers: TeamMember[] = apiUsers
           .filter((user) => user.userId || user.id)
           .map((user) => {
             const id = user.userId || user.id || "";
-
             const email = user.email || "No email";
-
-            const name =
-              user.name ||
-              email
-                .split("@")[0]
-                .replace(/[._-]/g, " ")
-                .replace(/\b\w/g, (letter) =>
-                  letter.toUpperCase()
-                );
-
-            const role: UserRole =
-              user.role === "admin" ||
-              user.role === "manager" ||
-              user.role === "employee"
-                ? user.role
-                : "employee";
+            const name = getDisplayName(user);
+            const role = normalizeRole(user.role);
 
             let joined = "Recently";
 
@@ -194,9 +255,9 @@ export default function TeamPage() {
   // ---------------------------------------------------------
 
   const filteredMembers = useMemo(() => {
-    return members.filter((member) => {
-      const searchText = search.toLowerCase();
+    const searchText = search.toLowerCase().trim();
 
+    return members.filter((member) => {
       const matchesSearch =
         member.name.toLowerCase().includes(searchText) ||
         member.email.toLowerCase().includes(searchText);
@@ -226,6 +287,82 @@ export default function TeamPage() {
   const adminCount = members.filter(
     (member) => member.role === "admin"
   ).length;
+
+  // ---------------------------------------------------------
+  // Invite modal
+  // ---------------------------------------------------------
+
+  const openInviteModal = () => {
+    if (currentUserRole !== "admin") return;
+
+    setError("");
+    setInviteSuccess("");
+    setInviteEmail("");
+    setInviteRole("employee");
+    setShowInviteModal(true);
+  };
+
+  const closeInviteModal = () => {
+    if (inviting) return;
+
+    setShowInviteModal(false);
+    setInviteEmail("");
+    setInviteRole("employee");
+  };
+
+  // ---------------------------------------------------------
+  // Send invitation
+  // ---------------------------------------------------------
+
+  const handleInvite = async () => {
+    if (currentUserRole !== "admin") {
+      setError("Only administrators can invite members.");
+      return;
+    }
+
+    const email = inviteEmail.trim().toLowerCase();
+
+    if (!email) {
+      setError("Please enter the member's email address.");
+      return;
+    }
+
+    if (!email.includes("@")) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    try {
+      setInviting(true);
+      setError("");
+      setInviteSuccess("");
+
+      await apiFetch("/invites", {
+        method: "POST",
+        body: JSON.stringify({
+          email,
+          role: inviteRole,
+        }),
+      });
+
+      setInviteSuccess(
+        `Invitation created for ${email} as ${inviteRole}.`
+      );
+
+      setInviteEmail("");
+      setInviteRole("employee");
+    } catch (err) {
+      console.error("Invitation failed:", err);
+
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to create invitation.");
+      }
+    } finally {
+      setInviting(false);
+    }
+  };
 
   // ---------------------------------------------------------
   // Role modal
@@ -300,31 +437,16 @@ export default function TeamPage() {
     }
   };
 
-  // ---------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------
-
-  const getInitials = (name: string) => {
-    return name
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part[0])
-      .join("")
-      .slice(0, 2)
-      .toUpperCase();
-  };
-
   return (
     <div className="min-h-screen bg-[#050914] text-white">
 
-      {/* =====================================================
-          SIDEBAR
-      ====================================================== */}
+      {/* SIDEBAR */}
 
       <aside className="fixed left-0 top-0 hidden h-screen w-[250px] border-r border-white/10 bg-[#070b17] lg:block">
         <div className="flex h-full flex-col">
 
-          {/* Logo */}
+          {/* LOGO */}
+
           <div className="flex h-20 items-center gap-3 border-b border-white/10 px-6">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-lg font-bold shadow-lg shadow-blue-900/30">
               T
@@ -341,15 +463,16 @@ export default function TeamPage() {
             </div>
           </div>
 
-          {/* Navigation */}
+          {/* NAVIGATION */}
+
           <nav className="flex-1 px-4 py-6">
+
             <p className="mb-3 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
               Workspace
             </p>
 
             <div className="space-y-1">
 
-              {/* Dashboard */}
               <button
                 onClick={() => router.push("/dashboard")}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
@@ -358,7 +481,6 @@ export default function TeamPage() {
                 Dashboard
               </button>
 
-              {/* Projects */}
               <button
                 onClick={() =>
                   router.push("/dashboard/projects")
@@ -369,7 +491,6 @@ export default function TeamPage() {
                 Projects
               </button>
 
-              {/* Team */}
               <button
                 className="flex w-full items-center gap-3 rounded-xl bg-blue-600/15 px-3 py-3 text-sm font-medium text-blue-400 ring-1 ring-blue-500/20"
               >
@@ -377,7 +498,6 @@ export default function TeamPage() {
                 Team
               </button>
 
-              {/* Settings */}
               <button
                 onClick={() =>
                   router.push("/dashboard/settings")
@@ -387,39 +507,49 @@ export default function TeamPage() {
                 <span className="text-lg">⚙</span>
                 Settings
               </button>
+
             </div>
           </nav>
 
-          {/* Current user */}
+          {/* CURRENT USER */}
+
           <div className="border-t border-white/10 p-4">
+
             <div className="flex items-center gap-3 rounded-xl bg-white/[0.03] p-3">
 
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600/20 text-xs font-bold text-blue-400">
-                SD
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600/20 text-xs font-bold text-blue-400">
+                {getInitials(currentUserName)}
               </div>
 
               <div className="min-w-0 flex-1">
+
                 <p className="truncate text-sm font-medium">
-                  TeamGate User
+                  {currentUserName}
+                </p>
+
+                <p className="truncate text-[10px] text-slate-600">
+                  {currentUserEmail}
                 </p>
 
                 <p className="text-xs capitalize text-slate-500">
                   {currentUserRole}
                 </p>
+
               </div>
 
             </div>
+
           </div>
+
         </div>
       </aside>
 
-      {/* =====================================================
-          MAIN
-      ====================================================== */}
+      {/* MAIN */}
 
       <main className="lg:ml-[250px]">
 
-        {/* Top Bar */}
+        {/* HEADER */}
+
         <header className="sticky top-0 z-20 flex min-h-20 items-center justify-between gap-3 border-b border-white/10 bg-[#050914]/90 px-4 py-3 backdrop-blur-xl sm:px-8">
 
           <div>
@@ -434,31 +564,15 @@ export default function TeamPage() {
 
           <div className="flex items-center gap-2 sm:gap-3">
 
-            {/* Mobile Dashboard Button */}
+            {/* MOBILE DASHBOARD */}
+
             <button
               onClick={() => router.push("/dashboard")}
               className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 text-sm font-medium text-blue-400 transition hover:border-blue-500/40 hover:bg-blue-500/15 hover:text-blue-300 lg:hidden"
             >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="1.8"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M3 12l9-9 9 9M5 10v10h14V10M9 20v-6h6v6"
-                />
-              </svg>
-
-              <span className="hidden sm:inline">
-                Dashboard
-              </span>
+              Dashboard
             </button>
 
-            {/* Notifications */}
             <button
               className="hidden h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-white/20 hover:bg-white/[0.06] hover:text-white sm:flex"
               title="Notifications"
@@ -466,37 +580,45 @@ export default function TeamPage() {
               ◌
             </button>
 
-            {/* Profile */}
+            {/* HEADER USER */}
+
             <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
 
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/20 text-xs font-bold text-blue-400">
-                SD
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600/20 text-xs font-bold text-blue-400">
+                {getInitials(currentUserName)}
               </div>
 
               <div className="hidden sm:block">
-                <p className="text-xs font-medium">
-                  TeamGate User
+
+                <p className="max-w-[150px] truncate text-xs font-medium">
+                  {currentUserName}
+                </p>
+
+                <p className="max-w-[150px] truncate text-[10px] text-slate-600">
+                  {currentUserEmail}
                 </p>
 
                 <p className="text-[10px] capitalize text-slate-500">
                   {currentUserRole}
                 </p>
+
               </div>
 
             </div>
+
           </div>
         </header>
 
-        {/* =====================================================
-            CONTENT
-        ====================================================== */}
+        {/* CONTENT */}
 
         <div className="p-5 sm:p-8">
 
-          {/* Page Header */}
+          {/* PAGE HEADER */}
+
           <section className="mb-8 flex flex-col justify-between gap-5 md:flex-row md:items-end">
 
             <div>
+
               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
                 Team members
               </h1>
@@ -505,26 +627,30 @@ export default function TeamPage() {
                 Manage your team members and control what they
                 can do inside TeamGate.
               </p>
+
             </div>
 
             {currentUserRole === "admin" && (
               <button
-                onClick={() =>
-                  alert(
-                    "Invite feature will be connected later."
-                  )
-                }
+                onClick={openInviteModal}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold shadow-lg shadow-blue-900/20 transition hover:bg-blue-500 active:scale-[0.98]"
               >
                 <span className="text-lg">+</span>
                 Invite member
               </button>
             )}
+
           </section>
 
-          {/* =================================================
-              RESTRICTED ACCESS
-          ================================================== */}
+          {/* SUCCESS MESSAGE */}
+
+          {inviteSuccess && (
+            <div className="mb-6 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+              {inviteSuccess}
+            </div>
+          )}
+
+          {/* RESTRICTED */}
 
           {!loading && isRestricted && (
             <section className="mb-8 rounded-2xl border border-blue-500/20 bg-blue-500/[0.05] p-6 sm:p-8">
@@ -550,47 +676,41 @@ export default function TeamPage() {
                     workspace members and change user roles.
                   </p>
 
-                  <div className="mt-5 flex flex-wrap gap-3">
+                  {/* ONLY ONE ACTION BUTTON HERE */}
 
-                    <button
-                      onClick={() =>
-                        router.push("/dashboard")
-                      }
-                      className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition hover:bg-blue-500"
-                    >
-                      Back to Dashboard
-                    </button>
+                  <div className="mt-5 flex flex-wrap gap-3">
 
                     <button
                       onClick={() =>
                         router.push("/dashboard/projects")
                       }
-                      className="rounded-xl border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+                      className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition hover:bg-blue-500"
                     >
                       View Projects
                     </button>
 
                   </div>
+
                 </div>
+
               </div>
+
             </section>
           )}
 
-          {/* =================================================
-              ADMIN TEAM CONTENT
-          ================================================== */}
+          {/* ADMIN CONTENT */}
 
           {!isRestricted && (
             <>
 
-              {/* Error */}
               {error && (
                 <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                   {error}
                 </div>
               )}
 
-              {/* Stats */}
+              {/* STATS */}
+
               <section className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
 
                 <div className="rounded-2xl border border-white/10 bg-[#090f1d] p-5">
@@ -651,7 +771,8 @@ export default function TeamPage() {
 
               </section>
 
-              {/* Search + Filters */}
+              {/* SEARCH */}
+
               <section className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
 
                 <div className="relative w-full lg:max-w-md">
@@ -668,9 +789,11 @@ export default function TeamPage() {
                     placeholder="Search members..."
                     className="h-12 w-full rounded-xl border border-white/10 bg-[#090f1d] pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10"
                   />
+
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+
                   {(
                     [
                       "all",
@@ -679,6 +802,7 @@ export default function TeamPage() {
                       "admin",
                     ] as const
                   ).map((role) => (
+
                     <button
                       key={role}
                       onClick={() => setRoleFilter(role)}
@@ -692,12 +816,15 @@ export default function TeamPage() {
                         ? "All"
                         : roleInfo[role].label}
                     </button>
+
                   ))}
+
                 </div>
 
               </section>
 
-              {/* Team Table */}
+              {/* TABLE */}
+
               <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#090f1d]">
 
                 <div className="border-b border-white/10 px-5 py-4 sm:px-6">
@@ -719,6 +846,7 @@ export default function TeamPage() {
                 </div>
 
                 {loading ? (
+
                   <div className="px-6 py-20 text-center">
 
                     <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-blue-500/20 border-t-blue-500" />
@@ -728,7 +856,9 @@ export default function TeamPage() {
                     </p>
 
                   </div>
+
                 ) : filteredMembers.length === 0 ? (
+
                   <div className="px-6 py-16 text-center">
 
                     <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-white/[0.04] text-xl text-slate-600">
@@ -744,10 +874,13 @@ export default function TeamPage() {
                     </p>
 
                   </div>
+
                 ) : (
+
                   <div className="divide-y divide-white/[0.06]">
 
                     {filteredMembers.map((member) => (
+
                       <div
                         key={member.id}
                         className="flex flex-col gap-5 px-5 py-5 transition hover:bg-white/[0.02] sm:px-6 lg:flex-row lg:items-center lg:justify-between"
@@ -784,6 +917,7 @@ export default function TeamPage() {
                             </p>
 
                           </div>
+
                         </div>
 
                         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
@@ -809,6 +943,7 @@ export default function TeamPage() {
 
                           {currentUserRole === "admin" &&
                             member.id !== currentUserId && (
+
                               <button
                                 onClick={() =>
                                   openRoleModal(member)
@@ -817,22 +952,24 @@ export default function TeamPage() {
                               >
                                 Change role
                               </button>
+
                             )}
 
                         </div>
+
                       </div>
+
                     ))}
 
                   </div>
+
                 )}
 
               </section>
             </>
           )}
 
-          {/* =================================================
-              ROLE INFORMATION
-          ================================================== */}
+          {/* ROLE INFORMATION */}
 
           <section className="mt-8">
 
@@ -852,6 +989,7 @@ export default function TeamPage() {
 
               {(Object.keys(roleInfo) as UserRole[]).map(
                 (role) => (
+
                   <div
                     key={role}
                     className="rounded-2xl border border-white/10 bg-[#090f1d] p-5"
@@ -913,6 +1051,13 @@ export default function TeamPage() {
                             <span className="text-emerald-400">
                               ✓
                             </span>
+                            Invite members
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <span className="text-emerald-400">
+                              ✓
+                            </span>
                             Change user roles
                           </div>
                         </>
@@ -926,7 +1071,8 @@ export default function TeamPage() {
             </div>
           </section>
 
-          {/* Security Note */}
+          {/* RBAC INFORMATION */}
+
           <div className="mt-8 rounded-2xl border border-blue-500/10 bg-blue-500/[0.04] p-5">
 
             <div className="flex gap-4">
@@ -948,10 +1094,11 @@ export default function TeamPage() {
                 </p>
 
               </div>
+
             </div>
+
           </div>
 
-          {/* Footer */}
           <footer className="mt-10 border-t border-white/5 py-6 text-center text-[11px] text-slate-700">
             TeamGate · Internal Project Tracker
           </footer>
@@ -959,16 +1106,193 @@ export default function TeamPage() {
         </div>
       </main>
 
-      {/* =====================================================
-          ROLE CHANGE MODAL
-      ====================================================== */}
+      {/* INVITE MODAL */}
+
+      {showInviteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#0a1020] shadow-2xl">
+
+            <div className="border-b border-white/10 px-6 py-5">
+
+              <div className="flex items-start justify-between gap-4">
+
+                <div>
+
+                  <h3 className="text-lg font-semibold">
+                    Invite team member
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Enter the person&apos;s own email address and
+                    choose the role they should receive.
+                  </p>
+
+                </div>
+
+                <button
+                  onClick={closeInviteModal}
+                  disabled={inviting}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+                >
+                  ×
+                </button>
+
+              </div>
+            </div>
+
+            <div className="px-6 py-6">
+
+              {inviteSuccess && (
+                <div className="mb-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+
+                  <p className="text-sm font-medium text-emerald-300">
+                    Invitation created
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-emerald-400/80">
+                    {inviteSuccess}
+                  </p>
+
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    The invited person should sign up using this
+                    same email address.
+                  </p>
+
+                </div>
+              )}
+
+              <label className="mb-2 block text-xs font-medium text-slate-400">
+                Member email
+              </label>
+
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(event) =>
+                  setInviteEmail(event.target.value)
+                }
+                placeholder="person@example.com"
+                disabled={inviting}
+                className="h-12 w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10 disabled:opacity-50"
+              />
+
+              <label className="mb-2 mt-5 block text-xs font-medium text-slate-400">
+                Select role
+              </label>
+
+              <div className="space-y-2">
+
+                <button
+                  type="button"
+                  onClick={() => setInviteRole("employee")}
+                  disabled={inviting}
+                  className={`w-full rounded-xl border p-4 text-left transition ${
+                    inviteRole === "employee"
+                      ? "border-blue-500/40 bg-blue-500/10"
+                      : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                  }`}
+                >
+
+                  <div className="flex items-center justify-between">
+
+                    <div>
+
+                      <p className="text-sm font-medium">
+                        Employee
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-600">
+                        Can view projects.
+                      </p>
+
+                    </div>
+
+                    <div
+                      className={`h-4 w-4 rounded-full border ${
+                        inviteRole === "employee"
+                          ? "border-blue-400 bg-blue-500"
+                          : "border-slate-700"
+                      }`}
+                    />
+
+                  </div>
+
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInviteRole("manager")}
+                  disabled={inviting}
+                  className={`w-full rounded-xl border p-4 text-left transition ${
+                    inviteRole === "manager"
+                      ? "border-blue-500/40 bg-blue-500/10"
+                      : "border-white/10 bg-white/[0.02] hover:bg-white/[0.04]"
+                  }`}
+                >
+
+                  <div className="flex items-center justify-between">
+
+                    <div>
+
+                      <p className="text-sm font-medium">
+                        Manager
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-600">
+                        Can view, create and edit projects.
+                      </p>
+
+                    </div>
+
+                    <div
+                      className={`h-4 w-4 rounded-full border ${
+                        inviteRole === "manager"
+                          ? "border-blue-400 bg-blue-500"
+                          : "border-slate-700"
+                      }`}
+                    />
+
+                  </div>
+
+                </button>
+
+              </div>
+            </div>
+
+            <div className="flex gap-3 border-t border-white/10 px-6 py-5">
+
+              <button
+                onClick={closeInviteModal}
+                disabled={inviting}
+                className="flex-1 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleInvite}
+                disabled={inviting}
+                className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {inviting
+                  ? "Sending..."
+                  : "Send invitation"}
+              </button>
+
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ROLE CHANGE MODAL */}
 
       {showRoleModal && selectedMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
 
           <div className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#0a1020] shadow-2xl">
 
-            {/* Modal Header */}
             <div className="border-b border-white/10 px-6 py-5">
 
               <div className="flex items-start justify-between gap-4">
@@ -997,7 +1321,6 @@ export default function TeamPage() {
               </div>
             </div>
 
-            {/* Modal Content */}
             <div className="px-6 py-6">
 
               <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.03] p-4">
@@ -1025,6 +1348,7 @@ export default function TeamPage() {
                     "admin",
                   ] as UserRole[]
                 ).map((role) => (
+
                   <button
                     key={role}
                     onClick={() => setNewRole(role)}
@@ -1061,12 +1385,12 @@ export default function TeamPage() {
                     </div>
 
                   </button>
+
                 ))}
 
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div className="flex gap-3 border-t border-white/10 px-6 py-5">
 
               <button
@@ -1095,6 +1419,7 @@ export default function TeamPage() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
