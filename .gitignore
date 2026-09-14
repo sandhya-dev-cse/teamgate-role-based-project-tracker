@@ -1,0 +1,8 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.dist-info/
+.venv/
+venv/
+.env

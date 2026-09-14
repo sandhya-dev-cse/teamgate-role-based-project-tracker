@@ -4,6 +4,8 @@ import { Construct } from 'constructs';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as s3 from 'aws-cdk-lib/aws-s3';
 
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
@@ -33,6 +35,39 @@ export class InfrastructureStack extends cdk.Stack {
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
 
       removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // =========================
+    // S3 Document Bucket
+    // =========================
+
+    const documentBucket = new s3.Bucket(this, 'TeamGateDocumentsBucket', {
+      bucketName: `teamgate-documents-${this.account}-${this.region}`,
+
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+
+      encryption: s3.BucketEncryption.S3_MANAGED,
+
+      enforceSSL: true,
+
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+
+      autoDeleteObjects: true,
+
+      cors: [
+        {
+          allowedMethods: [
+            s3.HttpMethods.GET,
+            s3.HttpMethods.PUT,
+          ],
+
+          allowedOrigins: ['*'],
+
+          allowedHeaders: ['*'],
+
+          exposedHeaders: ['ETag'],
+        },
+      ],
     });
 
     // =========================
@@ -96,42 +131,80 @@ export class InfrastructureStack extends cdk.Stack {
       ),
 
       environment: {
-        TABLE_NAME: teamgateTable.tableName,
-      },
+  TABLE_NAME: teamgateTable.tableName,
+  USER_POOL_ID: userPool.userPoolId,
+  DOCUMENT_BUCKET: documentBucket.bucketName,
+  GROQ_API_KEY: process.env.GROQ_API_KEY || '',
+},
 
-      timeout: cdk.Duration.seconds(10),
+      timeout: cdk.Duration.seconds(30),
 
-      memorySize: 256,
+      memorySize: 512,
     });
 
-    // Give Lambda permission to access DynamoDB.
+    // =========================
+    // DynamoDB permissions
+    // =========================
+
     teamgateTable.grantReadWriteData(projectsLambda);
+
+    // =========================
+    // S3 permissions
+    // =========================
+
+    documentBucket.grantReadWrite(projectsLambda);
+
+    // =========================
+    // Cognito AdminCreateUser
+    // =========================
+
+    projectsLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+
+        actions: [
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminGetUser',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminDeleteUser',
+        ],
+
+        resources: [
+          userPool.userPoolArn,
+        ],
+      })
+    );
 
     // =========================
     // API Gateway HTTP API
     // =========================
 
     const httpApi = new apigateway.HttpApi(this, 'TeamGateHttpApi', {
-  apiName: 'TeamGateApi',
+      apiName: 'TeamGateApi',
 
-  description: 'TeamGate role-based project tracker API',
+      description:
+        'TeamGate role-based project tracker and document RAG API',
 
-  corsPreflight: {
-    allowHeaders: [
-      'Content-Type',
-      'Authorization',
-    ],
-    allowMethods: [
-      apigateway.CorsHttpMethod.GET,
-      apigateway.CorsHttpMethod.POST,
-      apigateway.CorsHttpMethod.PUT,
-      apigateway.CorsHttpMethod.DELETE,
-      apigateway.CorsHttpMethod.OPTIONS,
-    ],
-    allowOrigins: ["*"],
-    maxAge: cdk.Duration.days(1),
-  },
-});
+      corsPreflight: {
+        allowHeaders: [
+          'Content-Type',
+          'Authorization',
+        ],
+
+        allowMethods: [
+          apigateway.CorsHttpMethod.GET,
+          apigateway.CorsHttpMethod.POST,
+          apigateway.CorsHttpMethod.PUT,
+          apigateway.CorsHttpMethod.DELETE,
+          apigateway.CorsHttpMethod.OPTIONS,
+        ],
+
+        allowOrigins: ['*'],
+
+        maxAge: cdk.Duration.days(1),
+      },
+    });
+
     // =========================
     // Cognito JWT Authorizer
     // =========================
@@ -157,47 +230,173 @@ export class InfrastructureStack extends cdk.Stack {
       );
 
     // =========================
-    // API Routes
+    // Project Routes
     // =========================
 
     httpApi.addRoutes({
       path: '/projects',
+
       methods: [
         apigateway.HttpMethod.GET,
         apigateway.HttpMethod.POST,
       ],
+
       integration: lambdaIntegration,
+
       authorizer: jwtAuthorizer,
     });
 
     httpApi.addRoutes({
       path: '/projects/{projectId}',
+
       methods: [
         apigateway.HttpMethod.PUT,
         apigateway.HttpMethod.DELETE,
       ],
+
       integration: lambdaIntegration,
+
       authorizer: jwtAuthorizer,
     });
+
+    // =========================
+    // Current User
+    // =========================
 
     httpApi.addRoutes({
       path: '/me',
-      methods: [apigateway.HttpMethod.GET],
+
+      methods: [
+        apigateway.HttpMethod.GET,
+      ],
+
       integration: lambdaIntegration,
+
       authorizer: jwtAuthorizer,
     });
 
+    // =========================
+    // Users
+    // =========================
+
     httpApi.addRoutes({
       path: '/users',
-      methods: [apigateway.HttpMethod.GET],
+
+      methods: [
+        apigateway.HttpMethod.GET,
+      ],
+
       integration: lambdaIntegration,
+
       authorizer: jwtAuthorizer,
     });
 
     httpApi.addRoutes({
       path: '/users/{userId}/role',
-      methods: [apigateway.HttpMethod.PUT],
+
+      methods: [
+        apigateway.HttpMethod.PUT,
+      ],
+
       integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // Invitations
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/invites',
+
+      methods: [
+        apigateway.HttpMethod.POST,
+      ],
+
+      integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // Documents
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/documents',
+
+      methods: [
+        apigateway.HttpMethod.GET,
+        apigateway.HttpMethod.POST,
+      ],
+
+      integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // Document Upload URL
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/documents/upload-url',
+
+      methods: [
+        apigateway.HttpMethod.POST,
+      ],
+
+      integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // Document Complete
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/documents/{documentId}/complete',
+
+      methods: [
+        apigateway.HttpMethod.POST,
+      ],
+
+      integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // Document Delete
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/documents/{documentId}',
+
+      methods: [
+        apigateway.HttpMethod.DELETE,
+      ],
+
+      integration: lambdaIntegration,
+
+      authorizer: jwtAuthorizer,
+    });
+
+    // =========================
+    // RAG Question Answering
+    // =========================
+
+    httpApi.addRoutes({
+      path: '/qa',
+
+      methods: [
+        apigateway.HttpMethod.POST,
+      ],
+
+      integration: lambdaIntegration,
+
       authorizer: jwtAuthorizer,
     });
 
@@ -207,31 +406,44 @@ export class InfrastructureStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'TeamGateTableName', {
       value: teamgateTable.tableName,
+
       description: 'TeamGate DynamoDB table name',
+    });
+
+    new cdk.CfnOutput(this, 'DocumentBucketName', {
+      value: documentBucket.bucketName,
+
+      description: 'TeamGate document S3 bucket',
     });
 
     new cdk.CfnOutput(this, 'UserPoolId', {
       value: userPool.userPoolId,
+
       description: 'TeamGate Cognito User Pool ID',
     });
 
     new cdk.CfnOutput(this, 'UserPoolClientId', {
       value: userPoolClient.userPoolClientId,
+
       description: 'TeamGate Cognito App Client ID',
     });
 
     new cdk.CfnOutput(this, 'UserPoolIssuer', {
-      value: `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+      value:
+        `https://cognito-idp.${this.region}.amazonaws.com/${userPool.userPoolId}`,
+
       description: 'TeamGate Cognito JWT issuer',
     });
 
     new cdk.CfnOutput(this, 'ApiUrl', {
       value: httpApi.apiEndpoint,
+
       description: 'TeamGate API Gateway endpoint',
     });
 
     new cdk.CfnOutput(this, 'LambdaName', {
       value: projectsLambda.functionName,
+
       description: 'TeamGate Python Lambda function',
     });
   }
