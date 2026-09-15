@@ -34,6 +34,8 @@ export default function SettingsPage() {
 
         {/* Sidebar */}
         <aside className="hidden w-64 border-r border-white/10 bg-[#07101f] p-5 md:block">
+
+          {/* Logo */}
           <div className="mb-10">
             <button
               onClick={() => goTo("/dashboard")}
@@ -49,8 +51,10 @@ export default function SettingsPage() {
             </button>
           </div>
 
+          {/* Navigation */}
           <nav className="space-y-2">
 
+            {/* Dashboard */}
             <button
               type="button"
               onClick={() => goTo("/dashboard")}
@@ -59,6 +63,7 @@ export default function SettingsPage() {
               Dashboard
             </button>
 
+            {/* Projects */}
             <button
               type="button"
               onClick={() => goTo("/dashboard/projects")}
@@ -67,6 +72,16 @@ export default function SettingsPage() {
               Projects
             </button>
 
+            {/* Documents */}
+            <button
+              type="button"
+              onClick={() => goTo("/dashboard/documents")}
+              className="w-full rounded-xl px-4 py-3 text-left text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+            >
+              Documents
+            </button>
+
+            {/* Team */}
             <button
               type="button"
               onClick={() => goTo("/dashboard/team")}
@@ -75,6 +90,7 @@ export default function SettingsPage() {
               Team
             </button>
 
+            {/* Settings */}
             <button
               type="button"
               onClick={() => goTo("/dashboard/settings")}
@@ -95,6 +111,7 @@ export default function SettingsPage() {
               ← Back to Dashboard
             </button>
           </div>
+
         </aside>
 
         {/* Main content */}
@@ -157,7 +174,6 @@ export default function SettingsPage() {
             <div className="mt-6 rounded-2xl border border-red-500/20 bg-[#0a1426] p-6 shadow-xl">
 
               <div className="mb-6">
-
                 <h3 className="text-lg font-semibold text-white">
                   Security
                 </h3>
@@ -165,7 +181,6 @@ export default function SettingsPage() {
                 <p className="mt-1 text-sm text-slate-400">
                   Sign out from this TeamGate account.
                 </p>
-
               </div>
 
               <button
