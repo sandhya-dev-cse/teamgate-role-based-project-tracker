@@ -13,6 +13,7 @@ type DocumentItem = {
   uploadedByEmail?: string;
   createdAt?: string;
   chunkCount?: number;
+  status?: string;
 };
 
 type UserInfo = {
@@ -32,6 +33,9 @@ export default function DocumentsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadMessage, setUploadMessage] = useState("");
 
+  const [selectedDocumentId, setSelectedDocumentId] =
+    useState("");
+
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState("");
@@ -44,8 +48,20 @@ export default function DocumentsPage() {
   const [deleting, setDeleting] = useState(false);
 
   const isAdmin = user?.role === "admin";
+
   const canUpload =
     user?.role === "admin" || user?.role === "manager";
+
+  const readyDocuments = documents.filter(
+    (document) =>
+      String(document.status || "ready").toLowerCase() ===
+      "ready"
+  );
+
+  const selectedDocument = documents.find(
+    (document) =>
+      document.documentId === selectedDocumentId
+  );
 
   useEffect(() => {
     loadPage();
@@ -58,14 +74,35 @@ export default function DocumentsPage() {
 
       const me = await apiFetch("/me");
 
+      const normalizedRole = String(
+        me.role || ""
+      ).toLowerCase();
+
       setUser({
         email: me.email,
-        role: String(me.role).toLowerCase(),
+        role: normalizedRole,
       });
 
       const result = await apiFetch("/documents");
 
-      setDocuments(result.documents || []);
+      const loadedDocuments: DocumentItem[] =
+        result.documents || [];
+
+      setDocuments(loadedDocuments);
+
+      setSelectedDocumentId((current) => {
+        if (
+          current &&
+          loadedDocuments.some(
+            (document) =>
+              document.documentId === current
+          )
+        ) {
+          return current;
+        }
+
+        return "";
+      });
     } catch (err: unknown) {
       const message =
         err instanceof Error
@@ -113,12 +150,54 @@ export default function DocumentsPage() {
     return "FILE";
   }
 
+  function getDocumentStatus(document: DocumentItem) {
+    return String(
+      document.status || "ready"
+    ).toLowerCase();
+  }
+
+  function selectDocument(documentId: string) {
+    const document = documents.find(
+      (item) => item.documentId === documentId
+    );
+
+    if (!document) return;
+
+    const status = getDocumentStatus(document);
+
+    if (status !== "ready") {
+      setError(
+        "This document is still being processed. Please wait until it is ready."
+      );
+      return;
+    }
+
+    setSelectedDocumentId(documentId);
+    setAnswer("");
+    setSources([]);
+    setError("");
+    setSuccess("");
+
+    setTimeout(() => {
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+    }, 50);
+  }
+
   async function uploadFile(file: File) {
     const extension =
       file.name.split(".").pop()?.toLowerCase();
 
-    if (!["pdf", "docx", "txt"].includes(extension || "")) {
-      setError("Only PDF, DOCX and TXT files are supported.");
+    if (
+      !["pdf", "docx", "txt"].includes(
+        extension || ""
+      )
+    ) {
+      setError(
+        "Only PDF, DOCX and TXT files are supported."
+      );
       return;
     }
 
@@ -136,7 +215,8 @@ export default function DocumentsPage() {
           body: JSON.stringify({
             fileName: file.name,
             contentType:
-              file.type || "application/octet-stream",
+              file.type ||
+              "application/octet-stream",
           }),
         }
       );
@@ -147,11 +227,14 @@ export default function DocumentsPage() {
       await uploadToS3(
         uploadInfo.uploadUrl,
         file,
-        file.type || "application/octet-stream"
+        file.type ||
+          "application/octet-stream"
       );
 
       setUploadProgress(70);
-      setUploadMessage("Processing document...");
+      setUploadMessage(
+        "Processing document..."
+      );
 
       await apiFetch(
         `/documents/${uploadInfo.documentId}/complete`,
@@ -162,9 +245,17 @@ export default function DocumentsPage() {
       );
 
       setUploadProgress(100);
-      setUploadMessage("Document uploaded successfully.");
+      setUploadMessage(
+        "Document uploaded successfully."
+      );
 
-      setSuccess(`${file.name} uploaded successfully.`);
+      setSelectedDocumentId(
+        uploadInfo.documentId
+      );
+
+      setSuccess(
+        `${file.name} uploaded successfully. It is now selected for AI questions.`
+      );
 
       await loadPage();
     } catch (err: unknown) {
@@ -188,48 +279,56 @@ export default function DocumentsPage() {
     file: File,
     contentType: string
   ) {
-    return new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+    return new Promise<void>(
+      (resolve, reject) => {
+        const xhr = new XMLHttpRequest();
 
-      xhr.open("PUT", url);
+        xhr.open("PUT", url);
 
-      xhr.setRequestHeader(
-        "Content-Type",
-        contentType
-      );
+        xhr.setRequestHeader(
+          "Content-Type",
+          contentType
+        );
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percent =
-            20 +
-            Math.round(
-              (event.loaded / event.total) * 50
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent =
+              20 +
+              Math.round(
+                (event.loaded / event.total) *
+                  50
+              );
+
+            setUploadProgress(percent);
+          }
+        };
+
+        xhr.onload = () => {
+          if (
+            xhr.status >= 200 &&
+            xhr.status < 300
+          ) {
+            resolve();
+          } else {
+            reject(
+              new Error(
+                `S3 upload failed: ${xhr.status}`
+              )
             );
+          }
+        };
 
-          setUploadProgress(percent);
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
+        xhr.onerror = () => {
           reject(
             new Error(
-              `S3 upload failed: ${xhr.status}`
+              "Unable to upload file to storage."
             )
           );
-        }
-      };
+        };
 
-      xhr.onerror = () => {
-        reject(
-          new Error("Unable to upload file to storage.")
-        );
-      };
-
-      xhr.send(file);
-    });
+        xhr.send(file);
+      }
+    );
   }
 
   function handleFileChange(
@@ -244,7 +343,9 @@ export default function DocumentsPage() {
     event.target.value = "";
   }
 
-  async function deleteDocument(documentId: string) {
+  async function deleteDocument(
+    documentId: string
+  ) {
     try {
       setDeleting(true);
       setError("");
@@ -257,7 +358,15 @@ export default function DocumentsPage() {
         }
       );
 
-      setSuccess("Document deleted successfully.");
+      if (selectedDocumentId === documentId) {
+        setSelectedDocumentId("");
+        setAnswer("");
+        setSources([]);
+      }
+
+      setSuccess(
+        "Document deleted successfully."
+      );
 
       setDeleteId(null);
 
@@ -282,6 +391,13 @@ export default function DocumentsPage() {
       return;
     }
 
+    if (readyDocuments.length === 0) {
+      setError(
+        "There are no ready documents available for AI questions."
+      );
+      return;
+    }
+
     try {
       setError("");
       setSuccess("");
@@ -295,6 +411,8 @@ export default function DocumentsPage() {
           method: "POST",
           body: JSON.stringify({
             question: trimmed,
+            documentId:
+              selectedDocumentId || undefined,
           }),
         }
       );
@@ -320,11 +438,14 @@ export default function DocumentsPage() {
   return (
     <main className="min-h-screen bg-[#050b18] text-white">
       <div className="mx-auto max-w-7xl px-5 py-8 md:px-8">
+
         {/* HEADER */}
         <div className="mb-8 flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div>
             <button
-              onClick={() => router.push("/dashboard")}
+              onClick={() =>
+                router.push("/dashboard")
+              }
               className="mb-4 text-sm text-slate-400 transition hover:text-white"
             >
               ← Back to Dashboard
@@ -335,8 +456,8 @@ export default function DocumentsPage() {
             </h1>
 
             <p className="mt-2 text-sm text-slate-400">
-              Upload documents and ask TeamGate AI questions
-              about your workspace files.
+              Upload documents and ask TeamGate AI
+              questions about your workspace files.
             </p>
           </div>
 
@@ -388,7 +509,7 @@ export default function DocumentsPage() {
               ? "Admin: upload, delete and ask questions."
               : user?.role === "manager"
               ? "Manager: upload documents and ask questions."
-              : "Employee: ask questions about workspace documents."}
+              : "Employee: view documents and ask questions about them."}
           </p>
         </div>
 
@@ -441,11 +562,31 @@ export default function DocumentsPage() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-400">
-              Ask a question and TeamGate AI will search the
-              uploaded document content.
+              Click a document below to select it,
+              then ask your question here.
             </p>
           </div>
 
+          {/* SELECTED DOCUMENT */}
+          <div className="mb-4 rounded-xl border border-blue-900/40 bg-blue-950/20 px-4 py-3">
+            <p className="text-xs uppercase tracking-wider text-slate-500">
+              Selected document
+            </p>
+
+            <p className="mt-1 text-sm font-semibold text-blue-300">
+              {selectedDocument
+                ? selectedDocument.fileName
+                : "No document selected"}
+            </p>
+
+            {!selectedDocument && (
+              <p className="mt-1 text-xs text-slate-500">
+                Click any ready document below to select it.
+              </p>
+            )}
+          </div>
+
+          {/* QUESTION + ASK BUTTON */}
           <div className="flex flex-col gap-3 md:flex-row">
             <input
               value={question}
@@ -461,13 +602,25 @@ export default function DocumentsPage() {
                   askQuestion();
                 }
               }}
-              placeholder="Example: What are the project requirements?"
-              className="flex-1 rounded-xl border border-slate-700 bg-[#050b18] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500"
+              placeholder={
+                selectedDocument
+                  ? `Ask about ${selectedDocument.fileName}...`
+                  : "First click a document, then type your question..."
+              }
+              disabled={
+                asking ||
+                readyDocuments.length === 0
+              }
+              className="flex-1 rounded-xl border border-slate-700 bg-[#050b18] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
             />
 
             <button
               onClick={askQuestion}
-              disabled={asking}
+              disabled={
+                asking ||
+                readyDocuments.length === 0 ||
+                !selectedDocumentId
+              }
               className="rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {asking
@@ -476,12 +629,31 @@ export default function DocumentsPage() {
             </button>
           </div>
 
+          {readyDocuments.length === 0 &&
+            !loading && (
+              <p className="mt-3 text-xs text-amber-400">
+                Upload and process a document before
+                asking TeamGate AI a question.
+              </p>
+            )}
+
+          {readyDocuments.length > 0 &&
+            !selectedDocument && (
+              <p className="mt-3 text-xs text-blue-400">
+                Select a document from the list below
+                to ask questions about it.
+              </p>
+            )}
+
           {(asking || answer) && (
             <div className="mt-6 rounded-xl border border-slate-800 bg-[#050b18] p-5">
               {asking ? (
                 <div className="flex items-center gap-3 text-sm text-slate-400">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-700 border-t-blue-500" />
-                  Searching documents and generating answer...
+
+                  {selectedDocument
+                    ? `Searching ${selectedDocument.fileName} and generating answer...`
+                    : "Searching documents and generating answer..."}
                 </div>
               ) : (
                 <>
@@ -501,7 +673,10 @@ export default function DocumentsPage() {
 
                       <div className="flex flex-wrap gap-2">
                         {sources.map(
-                          (source, index) => (
+                          (
+                            source,
+                            index
+                          ) => (
                             <span
                               key={`${source}-${index}`}
                               className="rounded-lg border border-blue-900/50 bg-blue-950/30 px-3 py-2 text-xs text-blue-300"
@@ -529,7 +704,9 @@ export default function DocumentsPage() {
 
               <p className="mt-1 text-sm text-slate-500">
                 {documents.length} document
-                {documents.length !== 1 ? "s" : ""}
+                {documents.length !== 1
+                  ? "s"
+                  : ""}
               </p>
             </div>
           </div>
@@ -567,77 +744,176 @@ export default function DocumentsPage() {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {documents.map((document) => (
-                <div
-                  key={document.documentId}
-                  className="group rounded-2xl border border-slate-800 bg-[#0a1428] p-5 transition hover:border-blue-800/70 hover:bg-[#0c172d]"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-900/50 bg-blue-950/40 text-[10px] font-bold text-blue-400">
-                        {getFileIcon(
-                          document.fileName
-                        )}
-                      </div>
+              {documents.map(
+                (document) => {
+                  const status =
+                    getDocumentStatus(
+                      document
+                    );
 
-                      <div className="min-w-0">
-                        <h3 className="truncate text-sm font-semibold text-white">
-                          {document.fileName}
-                        </h3>
+                  const isReady =
+                    status === "ready";
 
-                        <p className="mt-1 text-xs text-slate-500">
-                          {formatSize(
-                            document.size
-                          )}
-                        </p>
-                      </div>
-                    </div>
+                  const isSelected =
+                    selectedDocumentId ===
+                    document.documentId;
 
-                    <span className="rounded-full border border-emerald-900/50 bg-emerald-950/30 px-2.5 py-1 text-[10px] font-semibold uppercase text-emerald-400">
-                      Ready
-                    </span>
-                  </div>
-
-                  <div className="mt-5 space-y-2 text-xs text-slate-500">
-                    <div className="flex justify-between gap-3">
-                      <span>Chunks</span>
-                      <span className="text-slate-300">
-                        {document.chunkCount || 0}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-3">
-                      <span>Uploaded by</span>
-                      <span className="max-w-[180px] truncate text-slate-300">
-                        {document.uploadedByEmail ||
-                          "Unknown"}
-                      </span>
-                    </div>
-
-                    <div className="flex justify-between gap-3">
-                      <span>Uploaded</span>
-                      <span className="text-right text-slate-300">
-                        {formatDate(
-                          document.createdAt
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {isAdmin && (
-                    <button
-                      onClick={() =>
-                        setDeleteId(
-                          document.documentId
-                        )
+                  return (
+                    <div
+                      key={
+                        document.documentId
                       }
-                      className="mt-5 w-full rounded-xl border border-red-900/60 bg-red-950/20 px-4 py-2.5 text-xs font-semibold text-red-400 transition hover:bg-red-950/40"
+                      onClick={() => {
+                        if (isReady) {
+                          selectDocument(
+                            document.documentId
+                          );
+                        }
+                      }}
+                      role={
+                        isReady
+                          ? "button"
+                          : undefined
+                      }
+                      tabIndex={
+                        isReady ? 0 : undefined
+                      }
+                      onKeyDown={(event) => {
+                        if (
+                          isReady &&
+                          (event.key ===
+                            "Enter" ||
+                            event.key === " ")
+                        ) {
+                          event.preventDefault();
+
+                          selectDocument(
+                            document.documentId
+                          );
+                        }
+                      }}
+                      className={`group rounded-2xl border bg-[#0a1428] p-5 transition ${
+                        isReady
+                          ? "cursor-pointer"
+                          : "cursor-default"
+                      } ${
+                        isSelected
+                          ? "border-blue-500/80 bg-blue-950/20 shadow-lg shadow-blue-950/20"
+                          : "border-slate-800 hover:border-blue-800/70 hover:bg-[#0c172d]"
+                      }`}
                     >
-                      Delete Document
-                    </button>
-                  )}
-                </div>
-              ))}
+                      {/* DOCUMENT HEADER */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-900/50 bg-blue-950/40 text-[10px] font-bold text-blue-400">
+                            {getFileIcon(
+                              document.fileName
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold text-white">
+                              {
+                                document.fileName
+                              }
+                            </h3>
+
+                            <p className="mt-1 text-xs text-slate-500">
+                              {formatSize(
+                                document.size
+                              )}
+                            </p>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase ${
+                            isReady
+                              ? "border-emerald-900/50 bg-emerald-950/30 text-emerald-400"
+                              : "border-amber-900/50 bg-amber-950/30 text-amber-400"
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </div>
+
+                      {/* DOCUMENT DETAILS */}
+                      <div className="mt-5 space-y-2 text-xs text-slate-500">
+                        <div className="flex justify-between gap-3">
+                          <span>
+                            Chunks
+                          </span>
+
+                          <span className="text-slate-300">
+                            {document.chunkCount ||
+                              0}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-3">
+                          <span>
+                            Uploaded by
+                          </span>
+
+                          <span className="max-w-[180px] truncate text-slate-300">
+                            {document.uploadedByEmail ||
+                              "Unknown"}
+                          </span>
+                        </div>
+
+                        <div className="flex justify-between gap-3">
+                          <span>
+                            Uploaded
+                          </span>
+
+                          <span className="text-right text-slate-300">
+                            {formatDate(
+                              document.createdAt
+                            )}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* CLICK HINT */}
+                      {isReady && (
+                        <div
+                          className={`mt-5 rounded-xl border px-4 py-2.5 text-center text-xs font-semibold transition ${
+                            isSelected
+                              ? "border-blue-500/60 bg-blue-600/20 text-blue-300"
+                              : "border-blue-900/50 bg-blue-950/30 text-blue-300 group-hover:bg-blue-900/40"
+                          }`}
+                        >
+                          {isSelected
+                            ? "Selected for AI"
+                            : "Click to ask questions"}
+                        </div>
+                      )}
+
+                      {!isReady && (
+                        <div className="mt-5 rounded-xl border border-amber-900/40 bg-amber-950/20 px-4 py-2.5 text-center text-xs text-amber-400">
+                          Document is processing...
+                        </div>
+                      )}
+
+                      {/* ADMIN DELETE */}
+                      {isAdmin && (
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+
+                            setDeleteId(
+                              document.documentId
+                            );
+                          }}
+                          className="mt-3 w-full rounded-xl border border-red-900/60 bg-red-950/20 px-4 py-2.5 text-xs font-semibold text-red-400 transition hover:bg-red-950/40"
+                        >
+                          Delete Document
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+              )}
             </div>
           )}
         </section>
@@ -652,13 +928,16 @@ export default function DocumentsPage() {
             </h2>
 
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              This will permanently remove the document,
-              its stored file and its processed text.
+              This will permanently remove the
+              document, its stored file and its
+              processed text.
             </p>
 
             <div className="mt-6 flex justify-end gap-3">
               <button
-                onClick={() => setDeleteId(null)}
+                onClick={() =>
+                  setDeleteId(null)
+                }
                 disabled={deleting}
                 className="rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-300 transition hover:bg-slate-800"
               >

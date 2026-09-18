@@ -68,6 +68,17 @@ function normalizeRole(role?: string): UserRole {
 function formatRole(role: UserRole): string {
   return role.charAt(0).toUpperCase() + role.slice(1);
 }
+function getRoleLabel(role: UserRole): string {
+  if (role === "admin") {
+    return "Organization Owner";
+  }
+
+  if (role === "manager") {
+    return "Workspace Manager";
+  }
+
+  return "Workspace Member";
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -461,11 +472,11 @@ export default function DashboardPage() {
                   {userEmail}
                 </p>
 
-                <p className="text-xs text-gray-600">
-                  {loadingRole
-                    ? "Loading..."
-                    : formatRole(userRole)}
-                </p>
+                <p className="text-xs text-blue-400">
+  {loadingRole
+    ? "Loading..."
+    : getRoleLabel(userRole)}
+</p>
 
               </div>
 
@@ -560,11 +571,11 @@ export default function DashboardPage() {
                     {userEmail}
                   </p>
 
-                  <p className="text-[11px] text-gray-600">
-                    {loadingRole
-                      ? "Loading..."
-                      : formatRole(userRole)}
-                  </p>
+                  <p className="text-[11px] text-blue-400">
+  {loadingRole
+    ? "Loading..."
+    : getRoleLabel(userRole)}
+</p>
 
                 </div>
 
@@ -853,12 +864,10 @@ export default function DashboardPage() {
                     </p>
 
                     <h3 className="mt-2 text-xl font-semibold text-white">
-                      {loadingRole
-                        ? "Loading..."
-                        : formatRole(
-                            userRole
-                          )}
-                    </h3>
+  {loadingRole
+    ? "Loading..."
+    : getRoleLabel(userRole)}
+</h3>
 
                     <p className="mt-2 text-xs leading-5 text-gray-600">
 

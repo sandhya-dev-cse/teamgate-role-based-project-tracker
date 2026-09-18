@@ -16,9 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
 
   const [showPassword, setShowPassword] = useState(false);
-
   const [loading, setLoading] = useState(false);
-
   const [error, setError] = useState("");
 
   async function handleLogin(
@@ -34,8 +32,8 @@ export default function LoginPage() {
 
       /*
        * Clear any existing Cognito session.
-       * This allows switching between Admin, Manager and Employee
-       * test accounts.
+       * This allows switching between Admin, Manager
+       * and Employee test accounts.
        */
       try {
         await getCurrentUser();
@@ -61,10 +59,10 @@ export default function LoginPage() {
       }
 
       /*
-       * User needs to complete the first-login password challenge.
+       * First-login password challenge.
        *
-       * This happens for users created by the Admin through
-       * Cognito admin_create_user().
+       * This happens for users created by the Admin
+       * through Cognito admin_create_user().
        */
       if (
         result.nextStep?.signInStep ===
@@ -80,21 +78,8 @@ export default function LoginPage() {
       }
 
       /*
-       * Signup confirmation.
+       * Any other unexpected Cognito challenge.
        */
-      if (
-        result.nextStep?.signInStep ===
-        "CONFIRM_SIGN_UP"
-      ) {
-        sessionStorage.setItem(
-          "signup_email",
-          email.trim().toLowerCase()
-        );
-
-        router.replace("/confirm-signup");
-        return;
-      }
-
       setError(
         "Additional verification is required. Please try again."
       );
@@ -103,36 +88,20 @@ export default function LoginPage() {
 
       if (error instanceof Error) {
         if (
-          error.name ===
-          "UserNotConfirmedException"
-        ) {
-          sessionStorage.setItem(
-            "signup_email",
-            email.trim().toLowerCase()
-          );
-
-          router.replace("/confirm-signup");
-          return;
-        }
-
-        if (
-          error.name ===
-          "NotAuthorizedException"
+          error.name === "NotAuthorizedException"
         ) {
           setError(
             "Incorrect email or password."
           );
         } else if (
-          error.name ===
-          "UserNotFoundException"
+          error.name === "UserNotFoundException"
         ) {
           setError(
             "No account found with this email."
           );
         } else {
           setError(
-            error.message ||
-              "Unable to sign in."
+            error.message || "Unable to sign in."
           );
         }
       } else {
@@ -166,7 +135,6 @@ export default function LoginPage() {
           </div>
 
           <div className="max-w-md">
-
             <p className="text-sm font-medium text-blue-400">
               Secure workspace
             </p>
@@ -183,13 +151,11 @@ export default function LoginPage() {
               and server-side authorization to protect
               your workspace.
             </p>
-
           </div>
 
           <p className="text-xs text-slate-600">
             TeamGate · AWS powered project tracker
           </p>
-
         </section>
 
         {/* Login */}
@@ -198,7 +164,6 @@ export default function LoginPage() {
           <div className="w-full max-w-md">
 
             <div className="mb-8 lg:hidden">
-
               <h1 className="text-2xl font-bold">
                 Team
                 <span className="text-blue-500">
@@ -209,13 +174,11 @@ export default function LoginPage() {
               <p className="mt-2 text-sm text-slate-500">
                 Internal Project Tracker
               </p>
-
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-[#0a1426] p-8 shadow-2xl">
 
               <div className="mb-8">
-
                 <h2 className="text-2xl font-semibold">
                   Welcome back
                 </h2>
@@ -223,7 +186,6 @@ export default function LoginPage() {
                 <p className="mt-2 text-sm text-slate-400">
                   Sign in to continue to your workspace.
                 </p>
-
               </div>
 
               {error && (
@@ -237,8 +199,8 @@ export default function LoginPage() {
                 className="space-y-5"
               >
 
+                {/* Email */}
                 <div>
-
                   <label
                     htmlFor="email"
                     className="mb-2 block text-sm font-medium text-slate-300"
@@ -258,11 +220,10 @@ export default function LoginPage() {
                     disabled={loading}
                     className="w-full rounded-xl border border-white/10 bg-[#050914] px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
                   />
-
                 </div>
 
+                {/* Password */}
                 <div>
-
                   <label
                     htmlFor="password"
                     className="mb-2 block text-sm font-medium text-slate-300"
@@ -292,9 +253,7 @@ export default function LoginPage() {
                     <button
                       type="button"
                       onClick={() =>
-                        setShowPassword(
-                          !showPassword
-                        )
+                        setShowPassword(!showPassword)
                       }
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500 hover:text-white"
                     >
@@ -304,9 +263,9 @@ export default function LoginPage() {
                     </button>
 
                   </div>
-
                 </div>
 
+                {/* Sign in */}
                 <button
                   type="submit"
                   disabled={loading}
@@ -319,20 +278,9 @@ export default function LoginPage() {
 
               </form>
 
-              <div className="mt-6 text-center text-sm text-slate-500">
-
-                Don&apos;t have an account?{" "}
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    router.push("/signup")
-                  }
-                  className="font-medium text-blue-400 hover:text-blue-300"
-                >
-                  Create account
-                </button>
-
+              {/* Invitation-only message */}
+              <div className="mt-6 text-center text-xs text-slate-500">
+                Access is available only to invited TeamGate members.
               </div>
 
             </div>

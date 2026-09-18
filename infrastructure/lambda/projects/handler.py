@@ -26,11 +26,20 @@ s3 = boto3.client("s3")
 
 cognito = boto3.client("cognito-idp")
 
-DOCUMENT_BUCKET = os.environ.get("DOCUMENT_BUCKET", "")
+DOCUMENT_BUCKET = os.environ.get(
+    "DOCUMENT_BUCKET",
+    ""
+)
 
-USER_POOL_ID = os.environ.get("USER_POOL_ID", "")
+USER_POOL_ID = os.environ.get(
+    "USER_POOL_ID",
+    ""
+)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY = os.environ.get(
+    "GROQ_API_KEY",
+    ""
+)
 
 
 # ============================================================
@@ -38,15 +47,23 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 # ============================================================
 
 def response(status_code, body):
+
     return {
         "statusCode": status_code,
+
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "Content-Type,Authorization",
-            "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+            "Access-Control-Allow-Headers":
+                "Content-Type,Authorization",
+            "Access-Control-Allow-Methods":
+                "GET,POST,PUT,DELETE,OPTIONS",
         },
-        "body": json.dumps(body, default=str),
+
+        "body": json.dumps(
+            body,
+            default=str
+        ),
     }
 
 
@@ -55,6 +72,7 @@ def response(status_code, body):
 # ============================================================
 
 def get_method(event):
+
     return (
         event.get("requestContext", {})
         .get("http", {})
@@ -64,22 +82,31 @@ def get_method(event):
 
 
 def get_path(event):
-    return event.get("rawPath", "/")
+
+    return event.get(
+        "rawPath",
+        "/"
+    )
 
 
 def get_body(event):
+
     body = event.get("body")
 
     if not body:
         return {}
 
     try:
+
         return json.loads(body)
+
     except json.JSONDecodeError:
+
         return None
 
 
 def get_claims(event):
+
     return (
         event.get("requestContext", {})
         .get("authorizer", {})
@@ -93,18 +120,29 @@ def get_claims(event):
 # ============================================================
 
 def normalize_email(email):
-    return str(email or "").strip().lower()
+
+    return str(
+        email or ""
+    ).strip().lower()
 
 
 def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+
+    return datetime.now(
+        timezone.utc
+    ).isoformat()
 
 
 def clean_text(text):
+
     if not text:
         return ""
 
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(
+        r"\s+",
+        " ",
+        text
+    )
 
     return text.strip()
 
@@ -114,7 +152,10 @@ def clean_text(text):
 # ============================================================
 
 def get_invitation(email):
-    email = normalize_email(email)
+
+    email = normalize_email(
+        email
+    )
 
     if not email:
         return None
@@ -126,54 +167,85 @@ def get_invitation(email):
         }
     )
 
-    invitation = result.get("Item")
+    invitation = result.get(
+        "Item"
+    )
 
     if not invitation:
         return None
 
-    if invitation.get("status") != "pending":
+    if invitation.get(
+        "status"
+    ) != "pending":
+
         return None
 
     return invitation
 
 
-def create_invitation(admin_user, email, role):
+def create_invitation(
+    admin_user,
+    email,
+    role
+):
 
-    email = normalize_email(email)
+    email = normalize_email(
+        email
+    )
 
     role = str(
         role or ""
     ).strip().lower()
 
     if not email:
+
         return None, "Email is required"
 
+    # Admin can invite all three roles.
     if role not in {
+        "admin",
         "manager",
         "employee",
     }:
-        return None, "Role must be manager or employee"
+
+        return None, (
+            "Role must be admin, manager or employee"
+        )
 
     if normalize_email(
         admin_user.get("email")
     ) == email:
 
-        return None, "You cannot invite yourself"
+        return None, (
+            "You cannot invite yourself"
+        )
 
-    org_id = admin_user.get("orgId")
+    org_id = admin_user.get(
+        "orgId"
+    )
 
     if not org_id:
-        org_id = f"ORG#{admin_user.get('userId')}"
+
+        org_id = (
+            f"ORG#{admin_user.get('userId')}"
+        )
 
     invitation = {
-        "PK": f"INVITE#{email}",
-        "SK": "INVITE",
 
-        "email": email,
+        "PK":
+            f"INVITE#{email}",
 
-        "role": role,
+        "SK":
+            "INVITE",
 
-        "orgId": org_id,
+        "email":
+            email,
+
+        "role":
+            role,
+
+        "orgId":
+            org_id,
 
         "invitedBy":
             admin_user.get("userId"),
@@ -181,9 +253,11 @@ def create_invitation(admin_user, email, role):
         "invitedByEmail":
             admin_user.get("email"),
 
-        "status": "pending",
+        "status":
+            "pending",
 
-        "createdAt": now_iso(),
+        "createdAt":
+            now_iso(),
     }
 
     table.put_item(
@@ -193,11 +267,17 @@ def create_invitation(admin_user, email, role):
     return invitation, None
 
 
-def mark_invitation_accepted(email):
+def mark_invitation_accepted(
+    email
+):
 
-    email = normalize_email(email)
+    email = normalize_email(
+        email
+    )
 
-    invitation = get_invitation(email)
+    invitation = get_invitation(
+        email
+    )
 
     if not invitation:
         return
@@ -215,14 +295,21 @@ def mark_invitation_accepted(email):
 # COGNITO INVITATION
 # ============================================================
 
-def send_cognito_invitation(email, role):
+def send_cognito_invitation(
+    email,
+    role
+):
 
     if not USER_POOL_ID:
-        return False, "Cognito User Pool ID is missing"
+
+        return False, (
+            "Cognito User Pool ID is missing"
+        )
 
     try:
 
         cognito.admin_create_user(
+
             UserPoolId=USER_POOL_ID,
 
             Username=email,
@@ -277,7 +364,10 @@ def send_cognito_invitation(email, role):
 def has_any_users():
 
     result = table.scan(
-        FilterExpression="begins_with(PK, :prefix)",
+
+        FilterExpression=(
+            "begins_with(PK, :prefix)"
+        ),
 
         ExpressionAttributeValues={
             ":prefix": "USER#"
@@ -289,15 +379,22 @@ def has_any_users():
     )
 
     return len(
-        result.get("Items", [])
+        result.get(
+            "Items",
+            []
+        )
     ) > 0
 
 
 def get_current_user(event):
 
-    claims = get_claims(event)
+    claims = get_claims(
+        event
+    )
 
-    user_id = claims.get("sub")
+    user_id = claims.get(
+        "sub"
+    )
 
     email = normalize_email(
         claims.get("email")
@@ -308,12 +405,17 @@ def get_current_user(event):
 
     result = table.get_item(
         Key={
-            "PK": f"USER#{user_id}",
-            "SK": "PROFILE",
+            "PK":
+                f"USER#{user_id}",
+
+            "SK":
+                "PROFILE",
         }
     )
 
-    user = result.get("Item")
+    user = result.get(
+        "Item"
+    )
 
     # ========================================================
     # EXISTING USER
@@ -321,10 +423,17 @@ def get_current_user(event):
 
     if user:
 
-        if not user.get("userId"):
+        if not user.get(
+            "userId"
+        ):
+
             user["userId"] = user_id
 
-        if email and user.get("email") != email:
+        if (
+            email
+            and user.get("email") != email
+        ):
+
             user["email"] = email
 
             table.put_item(
@@ -336,7 +445,9 @@ def get_current_user(event):
             and not user.get("orgId")
         ):
 
-            user["orgId"] = f"ORG#{user_id}"
+            user["orgId"] = (
+                f"ORG#{user_id}"
+            )
 
             table.put_item(
                 Item=user
@@ -348,7 +459,9 @@ def get_current_user(event):
     # NEW USER
     # ========================================================
 
-    invitation = get_invitation(email)
+    invitation = get_invitation(
+        email
+    )
 
     role = None
 
@@ -370,14 +483,16 @@ def get_current_user(event):
         )
 
     # --------------------------------------------------------
-    # First user becomes Admin
+    # First user becomes Organization Owner
     # --------------------------------------------------------
 
     elif not has_any_users():
 
         role = "admin"
 
-        org_id = f"ORG#{user_id}"
+        org_id = (
+            f"ORG#{user_id}"
+        )
 
     # --------------------------------------------------------
     # Block uninvited users
@@ -392,19 +507,27 @@ def get_current_user(event):
         return None
 
     user = {
-        "PK": f"USER#{user_id}",
 
-        "SK": "PROFILE",
+        "PK":
+            f"USER#{user_id}",
 
-        "userId": user_id,
+        "SK":
+            "PROFILE",
 
-        "email": email,
+        "userId":
+            user_id,
 
-        "role": role,
+        "email":
+            email,
 
-        "createdAt": now_iso(),
+        "role":
+            role,
 
-        "orgId": org_id,
+        "createdAt":
+            now_iso(),
+
+        "orgId":
+            org_id,
     }
 
     table.put_item(
@@ -491,7 +614,10 @@ ROLE_PERMISSIONS = {
 }
 
 
-def check_permission(user, action):
+def check_permission(
+    user,
+    action
+):
 
     role = user.get(
         "role",
@@ -517,9 +643,12 @@ def check_permission(user, action):
 
 def get_projects(user):
 
-    org_id = user.get("orgId")
+    org_id = user.get(
+        "orgId"
+    )
 
     result = table.scan(
+
         FilterExpression=(
             "begins_with(PK, :prefix) "
             "AND orgId = :org"
@@ -531,20 +660,31 @@ def get_projects(user):
         },
     )
 
-    return result.get(
+    projects = result.get(
         "Items",
         []
     )
 
+    return projects
 
-def create_project(user, data):
+
+def create_project(
+    user,
+    data
+):
 
     name = str(
-        data.get("name", "")
+        data.get(
+            "name",
+            ""
+        )
     ).strip()
 
     description = str(
-        data.get("description", "")
+        data.get(
+            "description",
+            ""
+        )
     ).strip()
 
     status = str(
@@ -715,15 +855,19 @@ def get_users(user):
     )
 
     result = table.scan(
+
         FilterExpression=(
             "begins_with(PK, :prefix) "
             "AND orgId = :org"
         ),
 
         ExpressionAttributeValues={
-            ":prefix": "USER#",
 
-            ":org": org_id,
+            ":prefix":
+                "USER#",
+
+            ":org":
+                org_id,
         },
     )
 
@@ -765,7 +909,7 @@ def change_user_role(
 ):
 
     new_role = str(
-        new_role
+        new_role or ""
     ).lower().strip()
 
     allowed_roles = {
@@ -775,6 +919,7 @@ def change_user_role(
     }
 
     if new_role not in allowed_roles:
+
         return None, "Invalid role"
 
     if user_id == admin_user.get(
@@ -800,6 +945,7 @@ def change_user_role(
     )
 
     if not user:
+
         return None, "User not found"
 
     if user.get(
@@ -832,15 +978,19 @@ def get_documents(user):
     )
 
     result = table.scan(
+
         FilterExpression=(
             "begins_with(PK, :prefix) "
             "AND orgId = :org"
         ),
 
         ExpressionAttributeValues={
-            ":prefix": "DOCUMENT#",
 
-            ":org": org_id,
+            ":prefix":
+                "DOCUMENT#",
+
+            ":org":
+                org_id,
         },
     )
 
@@ -876,6 +1026,9 @@ def get_documents(user):
 
             "chunkCount":
                 item.get("chunkCount", 0),
+
+            "status":
+                item.get("status", "unknown"),
         })
 
     documents.sort(
@@ -895,12 +1048,15 @@ def get_document(
 ):
 
     result = table.get_item(
+
         Key={
+
             "PK":
                 f"DOCUMENT#{document_id}",
 
             "SK":
                 "DOCUMENT",
+
         }
     )
 
@@ -924,7 +1080,9 @@ def get_document(
 # DOCUMENT TEXT EXTRACTION
 # ============================================================
 
-def extract_pdf_text(file_bytes):
+def extract_pdf_text(
+    file_bytes
+):
 
     reader = PdfReader(
         BytesIO(file_bytes)
@@ -939,7 +1097,10 @@ def extract_pdf_text(file_bytes):
             text = page.extract_text()
 
             if text:
-                pages.append(text)
+
+                pages.append(
+                    text
+                )
 
         except Exception as error:
 
@@ -953,7 +1114,9 @@ def extract_pdf_text(file_bytes):
     )
 
 
-def extract_docx_text(file_bytes):
+def extract_docx_text(
+    file_bytes
+):
 
     document = Document(
         BytesIO(file_bytes)
@@ -966,7 +1129,10 @@ def extract_docx_text(file_bytes):
         text = paragraph.text.strip()
 
         if text:
-            paragraphs.append(text)
+
+            paragraphs.append(
+                text
+            )
 
     return clean_text(
         "\n".join(paragraphs)
@@ -1055,6 +1221,7 @@ def chunk_text(
         ].strip()
 
         if chunk:
+
             chunks.append(
                 chunk
             )
@@ -1075,6 +1242,7 @@ def chunk_text(
 # ============================================================
 
 STOP_WORDS = {
+
     "the",
     "is",
     "a",
@@ -1113,10 +1281,14 @@ def tokenize(text):
     )
 
     return [
+
         word
+
         for word in words
+
         if word not in STOP_WORDS
         and len(word) > 2
+
     ]
 
 
@@ -1157,73 +1329,226 @@ def retrieval_score(
         )
 
     return (
+
         overlap
         / math.sqrt(
             len(question_words)
-            * max(len(chunk_set), 1)
+            * max(
+                len(chunk_set),
+                1
+            )
         )
+
     ) + (
+
         min(
             frequency_bonus,
             5
         ) * 0.01
+
     )
 
+
+# ============================================================
+# IMPROVED DOCUMENT RETRIEVAL
+# ============================================================
 
 def retrieve_chunks(
     question,
     org_id,
-    limit=5
+    limit=5,
+    document_id=None
 ):
+    """
+    Retrieve the most relevant chunks from DynamoDB.
 
-    result = table.scan(
-        FilterExpression=(
+    If document_id is provided, retrieval is restricted
+    to that specific document.
+    """
+
+    question_words = set(
+        re.findall(
+            r"\b[a-zA-Z0-9]+\b",
+            question.lower()
+        )
+    )
+
+    if not question_words:
+        return []
+
+    all_chunks = []
+
+    scan_kwargs = {
+
+        "FilterExpression": (
             "begins_with(PK, :prefix) "
             "AND orgId = :org"
         ),
 
-        ExpressionAttributeValues={
-            ":prefix": "CHUNK#",
+        "ExpressionAttributeValues": {
 
-            ":org": org_id,
+            ":prefix":
+                "CHUNK#",
+
+            ":org":
+                org_id,
+
         },
-    )
 
-    scored = []
+        "ConsistentRead":
+            True,
+    }
 
-    for item in result.get(
-        "Items",
-        []
-    ):
+    # --------------------------------------------------------
+    # Strict document filtering
+    # --------------------------------------------------------
 
-        text = item.get(
-            "text",
-            ""
+    if document_id:
+
+        scan_kwargs["FilterExpression"] = (
+            "begins_with(PK, :prefix) "
+            "AND orgId = :org"
         )
 
-        score = retrieval_score(
-            question,
-            text
+    # --------------------------------------------------------
+    # DynamoDB pagination
+    # --------------------------------------------------------
+
+    while True:
+
+        result = table.scan(
+            **scan_kwargs
         )
 
-        if score > 0:
+        for item in result.get(
+            "Items",
+            []
+        ):
 
-            scored.append(
-                (
-                    score,
-                    item
+            item_document_id = str(
+                item.get(
+                    "documentId",
+                    ""
                 )
             )
 
-    scored.sort(
-        key=lambda x: x[0],
+            # ------------------------------------------------
+            # Search only selected document
+            # ------------------------------------------------
+
+            if document_id:
+
+                if item_document_id != document_id:
+
+                    continue
+
+            # ------------------------------------------------
+            # IMPORTANT:
+            # DynamoDB stores extracted text in "text"
+            # ------------------------------------------------
+
+            text = str(
+                item.get(
+                    "text",
+                    ""
+                )
+            ).strip()
+
+            if not text:
+                continue
+
+            all_chunks.append({
+
+                "chunkId":
+                    item.get(
+                        "chunkId"
+                    ),
+
+                "documentId":
+                    item_document_id,
+
+                "documentName":
+                    item.get(
+                        "documentName",
+                        "Unknown document"
+                    ),
+
+                "chunkIndex":
+                    int(
+                        item.get(
+                            "chunkIndex",
+                            0
+                        )
+                    ),
+
+                "text":
+                    text,
+
+            })
+
+        last_key = result.get(
+            "LastEvaluatedKey"
+        )
+
+        if not last_key:
+            break
+
+        scan_kwargs[
+            "ExclusiveStartKey"
+        ] = last_key
+
+    # --------------------------------------------------------
+    # Score chunks
+    # --------------------------------------------------------
+
+    scored_chunks = []
+
+    for chunk in all_chunks:
+
+        text_lower = chunk[
+            "text"
+        ].lower()
+
+        score = 0
+
+        for word in question_words:
+
+            if word in text_lower:
+
+                score += 1
+
+        if score > 0:
+
+            scored_chunks.append(
+                (
+                    score,
+                    chunk
+                )
+            )
+
+    # --------------------------------------------------------
+    # Highest score first
+    # --------------------------------------------------------
+
+    scored_chunks.sort(
+
+        key=lambda item: (
+            item[0],
+            -item[1]["chunkIndex"]
+        ),
+
         reverse=True
+
     )
 
     return [
-        item
-        for score, item
-        in scored[:limit]
+
+        chunk
+
+        for score, chunk
+
+        in scored_chunks[:limit]
+
     ]
 
 
@@ -1268,19 +1593,26 @@ USER QUESTION:
 
     completion = client.chat.completions.create(
 
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-20b",
 
         messages=[
+
             {
-                "role": "system",
+                "role":
+                    "system",
+
                 "content":
                     "You answer questions using supplied document context."
             },
 
             {
-                "role": "user",
-                "content": prompt,
+                "role":
+                    "user",
+
+                "content":
+                    prompt,
             },
+
         ],
 
         temperature=0.1,
@@ -1383,6 +1715,7 @@ def lambda_handler(
         return response(
             200,
             {
+
                 "userId":
                     user.get("userId"),
 
@@ -1394,6 +1727,7 @@ def lambda_handler(
 
                 "orgId":
                     user.get("orgId"),
+
             }
         )
 
@@ -1745,10 +2079,12 @@ def lambda_handler(
         return response(
             200,
             {
+
                 "message":
                     "User role updated successfully",
 
                 "user": {
+
                     "userId":
                         updated_user.get(
                             "userId"
@@ -1763,6 +2099,7 @@ def lambda_handler(
                         updated_user.get(
                             "role"
                         ),
+
                 },
             }
         )
@@ -1808,7 +2145,10 @@ def lambda_handler(
         )
 
         invite_role = str(
-            data.get("role", "")
+            data.get(
+                "role",
+                ""
+            )
         ).strip().lower()
 
         if not email:
@@ -1821,7 +2161,9 @@ def lambda_handler(
                 }
             )
 
+        # Admin can invite Admin, Manager or Employee.
         if invite_role not in {
+            "admin",
             "manager",
             "employee",
         }:
@@ -1830,7 +2172,7 @@ def lambda_handler(
                 400,
                 {
                     "message":
-                        "Role must be manager or employee"
+                        "Role must be admin, manager or employee"
                 }
             )
 
@@ -1868,6 +2210,7 @@ def lambda_handler(
         return response(
             201,
             {
+
                 "message":
                     "Invitation sent successfully",
 
@@ -1892,6 +2235,7 @@ def lambda_handler(
                         invitation.get(
                             "createdAt"
                         ),
+
                 },
             }
         )
@@ -2026,6 +2370,7 @@ def lambda_handler(
                 "put_object",
 
                 Params={
+
                     "Bucket":
                         DOCUMENT_BUCKET,
 
@@ -2034,6 +2379,7 @@ def lambda_handler(
 
                     "ContentType":
                         content_type,
+
                 },
 
                 ExpiresIn=900,
@@ -2100,6 +2446,7 @@ def lambda_handler(
         return response(
             200,
             {
+
                 "documentId":
                     document_id,
 
@@ -2108,6 +2455,7 @@ def lambda_handler(
 
                 "objectKey":
                     object_key,
+
             }
         )
 
@@ -2172,11 +2520,13 @@ def lambda_handler(
         try:
 
             s3_object = s3.get_object(
+
                 Bucket=DOCUMENT_BUCKET,
 
                 Key=document.get(
                     "objectKey"
                 )
+
             )
 
             file_bytes = s3_object[
@@ -2184,6 +2534,7 @@ def lambda_handler(
             ].read()
 
             text = extract_text(
+
                 file_bytes,
 
                 document.get(
@@ -2195,6 +2546,7 @@ def lambda_handler(
                     "contentType",
                     ""
                 )
+
             )
 
             if not text:
@@ -2221,36 +2573,68 @@ def lambda_handler(
                     }
                 )
 
-            # Remove old chunks if this document
-            # is being processed again.
-            old_chunks = table.scan(
-                FilterExpression=(
+            # ------------------------------------------------
+            # Remove old chunks for this document.
+            # ------------------------------------------------
+
+            old_chunks_kwargs = {
+
+                "FilterExpression": (
                     "begins_with(PK, :prefix) "
                     "AND documentId = :document"
                 ),
 
-                ExpressionAttributeValues={
-                    ":prefix": "CHUNK#",
+                "ExpressionAttributeValues": {
+
+                    ":prefix":
+                        "CHUNK#",
 
                     ":document":
                         document_id,
+
                 },
-            )
 
-            for old_chunk in old_chunks.get(
-                "Items",
-                []
-            ):
+            }
 
-                table.delete_item(
-                    Key={
-                        "PK":
-                            old_chunk["PK"],
+            while True:
 
-                        "SK":
-                            old_chunk["SK"],
-                    }
+                old_chunks = table.scan(
+                    **old_chunks_kwargs
                 )
+
+                for old_chunk in old_chunks.get(
+                    "Items",
+                    []
+                ):
+
+                    table.delete_item(
+
+                        Key={
+
+                            "PK":
+                                old_chunk["PK"],
+
+                            "SK":
+                                old_chunk["SK"],
+
+                        }
+
+                    )
+
+                last_key = old_chunks.get(
+                    "LastEvaluatedKey"
+                )
+
+                if not last_key:
+                    break
+
+                old_chunks_kwargs[
+                    "ExclusiveStartKey"
+                ] = last_key
+
+            # ------------------------------------------------
+            # Store new chunks.
+            # ------------------------------------------------
 
             for index, chunk in enumerate(
                 chunks
@@ -2261,6 +2645,7 @@ def lambda_handler(
                 )
 
                 table.put_item(
+
                     Item={
 
                         "PK":
@@ -2290,7 +2675,9 @@ def lambda_handler(
 
                         "text":
                             chunk,
+
                     }
+
                 )
 
             document["status"] = "ready"
@@ -2308,10 +2695,12 @@ def lambda_handler(
             return response(
                 200,
                 {
+
                     "message":
                         "Document processed successfully",
 
                     "document": {
+
                         "documentId":
                             document_id,
 
@@ -2325,7 +2714,9 @@ def lambda_handler(
 
                         "status":
                             "ready",
+
                     },
+
                 }
             )
 
@@ -2407,16 +2798,20 @@ def lambda_handler(
                 }
             )
 
-        # Delete S3 object.
+        # ----------------------------------------------------
+        # Delete S3 object
+        # ----------------------------------------------------
 
         try:
 
             s3.delete_object(
+
                 Bucket=DOCUMENT_BUCKET,
 
                 Key=document.get(
                     "objectKey"
                 )
+
             )
 
         except Exception as error:
@@ -2426,47 +2821,81 @@ def lambda_handler(
                 str(error)
             )
 
-        # Delete chunks.
+        # ----------------------------------------------------
+        # Delete all chunks for document
+        # ----------------------------------------------------
 
-        chunks_result = table.scan(
-            FilterExpression=(
+        chunks_kwargs = {
+
+            "FilterExpression": (
                 "begins_with(PK, :prefix) "
                 "AND documentId = :document"
             ),
 
-            ExpressionAttributeValues={
-                ":prefix": "CHUNK#",
+            "ExpressionAttributeValues": {
+
+                ":prefix":
+                    "CHUNK#",
 
                 ":document":
                     document_id,
+
             },
-        )
 
-        for chunk in chunks_result.get(
-            "Items",
-            []
-        ):
+        }
 
-            table.delete_item(
-                Key={
-                    "PK":
-                        chunk["PK"],
+        while True:
 
-                    "SK":
-                        chunk["SK"],
-                }
+            chunks_result = table.scan(
+                **chunks_kwargs
             )
 
-        # Delete document metadata.
+            for chunk in chunks_result.get(
+                "Items",
+                []
+            ):
+
+                table.delete_item(
+
+                    Key={
+
+                        "PK":
+                            chunk["PK"],
+
+                        "SK":
+                            chunk["SK"],
+
+                    }
+
+                )
+
+            last_key = chunks_result.get(
+                "LastEvaluatedKey"
+            )
+
+            if not last_key:
+                break
+
+            chunks_kwargs[
+                "ExclusiveStartKey"
+            ] = last_key
+
+        # ----------------------------------------------------
+        # Delete document metadata
+        # ----------------------------------------------------
 
         table.delete_item(
+
             Key={
+
                 "PK":
                     f"DOCUMENT#{document_id}",
 
                 "SK":
                     "DOCUMENT",
+
             }
+
         )
 
         return response(
@@ -2530,28 +2959,109 @@ def lambda_handler(
                 }
             )
 
+        # ----------------------------------------------------
+        # Selected document from frontend
+        # ----------------------------------------------------
+
+        document_id = str(
+            data.get(
+                "documentId",
+                ""
+            )
+        ).strip()
+
+        # ----------------------------------------------------
+        # Verify selected document
+        # ----------------------------------------------------
+
+        if document_id:
+
+            selected_document = get_document(
+
+                document_id,
+
+                user.get(
+                    "orgId"
+                )
+
+            )
+
+            if not selected_document:
+
+                return response(
+                    404,
+                    {
+                        "message":
+                            "Selected document was not found"
+                    }
+                )
+
+            if selected_document.get(
+                "status"
+            ) != "ready":
+
+                return response(
+                    400,
+                    {
+                        "message":
+                            "Selected document is not ready yet"
+                    }
+                )
+
+        # ----------------------------------------------------
+        # Retrieve relevant chunks
+        # ----------------------------------------------------
+
         retrieved = retrieve_chunks(
+
             question,
 
             user.get(
                 "orgId"
             ),
 
-            limit=5
+            limit=5,
+
+            document_id=(
+                document_id
+                if document_id
+                else None
+            )
+
         )
 
         if not retrieved:
 
+            message = (
+
+                "I couldn't find relevant information "
+                "in the selected document."
+
+                if document_id
+
+                else
+
+                "I couldn't find relevant information "
+                "in the uploaded documents."
+
+            )
+
             return response(
                 200,
                 {
+
                     "answer":
-                        "I couldn't find relevant information in the uploaded documents.",
+                        message,
 
                     "sources":
                         [],
+
                 }
             )
+
+        # ----------------------------------------------------
+        # Build AI context
+        # ----------------------------------------------------
 
         context_parts = []
 
@@ -2570,7 +3080,10 @@ def lambda_handler(
                 "documentName"
             )
 
-            if source_name and source_name not in sources:
+            if (
+                source_name
+                and source_name not in sources
+            ):
 
                 sources.append(
                     source_name
@@ -2580,36 +3093,50 @@ def lambda_handler(
             context_parts
         )
 
+        # ====================================================
+        # GROQ AI ANSWER
+        # ====================================================
+
         try:
 
             answer = generate_groq_answer(
+
                 question,
+
                 context
+
             )
 
         except Exception as error:
 
             print(
                 "Groq error:",
-                str(error)
+                repr(error)
             )
 
             return response(
                 500,
                 {
+
                     "message":
-                        "Unable to generate AI answer"
+                        "Unable to generate AI answer",
+
+                    "error":
+                        str(error),
+
                 }
             )
 
         return response(
             200,
             {
+
                 "answer":
                     answer,
 
                 "sources":
                     sources,
+
             }
         )
 

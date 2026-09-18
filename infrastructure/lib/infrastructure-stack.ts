@@ -7,6 +7,8 @@ import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 
+
+
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
@@ -77,7 +79,7 @@ export class InfrastructureStack extends cdk.Stack {
     const userPool = new cognito.UserPool(this, 'TeamGateUserPool', {
       userPoolName: 'TeamGateUserPool',
 
-      selfSignUpEnabled: true,
+      selfSignUpEnabled: false,
 
       signInAliases: {
         email: true,
@@ -114,34 +116,36 @@ export class InfrastructureStack extends cdk.Stack {
 
       preventUserExistenceErrors: true,
     });
+// =========================
+// Python Lambda
+// =========================
 
-    // =========================
-    // Python Lambda
-    // =========================
+const projectsLambda = new lambda.Function(
+  this,
+  'TeamGateProjectsLambda',
+  {
+    functionName: 'TeamGateProjectsLambda',
 
-    const projectsLambda = new lambda.Function(this, 'TeamGateProjectsLambda', {
-      functionName: 'TeamGateProjectsLambda',
+    runtime: lambda.Runtime.PYTHON_3_12,
 
-      runtime: lambda.Runtime.PYTHON_3_14,
+    handler: 'handler.lambda_handler',
 
-      handler: 'handler.lambda_handler',
+    code: lambda.Code.fromAsset(
+      `${__dirname}/../lambda/projects`
+    ),
 
-      code: lambda.Code.fromAsset(
-        `${__dirname}/../lambda/projects`
-      ),
+    environment: {
+      TABLE_NAME: teamgateTable.tableName,
+      USER_POOL_ID: userPool.userPoolId,
+      DOCUMENT_BUCKET: documentBucket.bucketName,
+      GROQ_API_KEY: process.env.GROQ_API_KEY || '',
+    },
 
-      environment: {
-  TABLE_NAME: teamgateTable.tableName,
-  USER_POOL_ID: userPool.userPoolId,
-  DOCUMENT_BUCKET: documentBucket.bucketName,
-  GROQ_API_KEY: process.env.GROQ_API_KEY || '',
-},
+    timeout: cdk.Duration.seconds(30),
 
-      timeout: cdk.Duration.seconds(30),
-
-      memorySize: 512,
-    });
-
+    memorySize: 512,
+  }
+);
     // =========================
     // DynamoDB permissions
     // =========================
