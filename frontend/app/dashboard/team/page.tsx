@@ -276,15 +276,27 @@ export default function TeamPage() {
             </p>
           </div>
 
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={openInviteModal}
-              className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition hover:bg-blue-500 active:scale-[0.98]"
-            >
-              + Invite Member
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-3">
+  <button
+    type="button"
+    onClick={() => {
+      window.location.href = "/dashboard";
+    }}
+    className="rounded-xl border border-slate-700 bg-[#0a1020] px-5 py-3 text-sm font-semibold text-slate-300 transition hover:border-blue-500/40 hover:bg-slate-900 hover:text-white"
+  >
+    Dashboard
+  </button>
+
+  {isAdmin && (
+    <button
+      type="button"
+      onClick={openInviteModal}
+      className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/20 transition hover:bg-blue-500 active:scale-[0.98]"
+    >
+      + Invite Member
+    </button>
+  )}
+</div>
         </div>
 
         {/* Messages */}
