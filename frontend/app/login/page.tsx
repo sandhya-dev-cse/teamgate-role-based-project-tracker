@@ -43,9 +43,12 @@ export default function LoginPage() {
       }
 
       const result = await signIn({
-        username: email.trim().toLowerCase(),
-        password,
-      });
+  username: email.trim().toLowerCase(),
+  password,
+  options: {
+    authFlowType: "USER_PASSWORD_AUTH",
+  },
+});
 
       console.log("Cognito sign-in result:", result);
 

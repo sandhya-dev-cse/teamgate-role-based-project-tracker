@@ -294,26 +294,14 @@ def mark_invitation_accepted(
 # ============================================================
 # COGNITO INVITATION
 # ============================================================
-
-def send_cognito_invitation(
-    email,
-    role
-):
-
+def send_cognito_invitation(email, role):
     if not USER_POOL_ID:
-
-        return False, (
-            "Cognito User Pool ID is missing"
-        )
+        return False, "Cognito User Pool ID is missing"
 
     try:
-
         cognito.admin_create_user(
-
             UserPoolId=USER_POOL_ID,
-
             Username=email,
-
             UserAttributes=[
                 {
                     "Name": "email",
@@ -324,13 +312,8 @@ def send_cognito_invitation(
                     "Value": "true",
                 },
             ],
-
-            DesiredDeliveryMediums=[
-                "EMAIL"
-            ],
-
+            DesiredDeliveryMediums=["EMAIL"],
             ForceAliasCreation=False,
-
             ClientMetadata={
                 "role": role,
             },
@@ -339,23 +322,22 @@ def send_cognito_invitation(
         return True, None
 
     except cognito.exceptions.UsernameExistsException:
-
-        return False, (
-            "A Cognito account already exists "
-            "for this email address."
+        return (
+            False,
+            "A Cognito account already exists for this email address.",
         )
 
     except Exception as error:
-
         print(
             "Cognito invitation error:",
             str(error)
         )
-
-        return False, (
+        return (
+            False,
             "Unable to send Cognito invitation."
         )
 
+       
 
 # ============================================================
 # USER HELPERS
